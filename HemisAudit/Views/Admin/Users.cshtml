@@ -40,83 +40,84 @@
 </div>
 
 <div class="card">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Name</th><th>Email</th><th>Code</th><th>Role</th>
-                <th>Password Age</th><th>Engagements</th><th>Status</th><th>Last Login</th><th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var u in Model)
-            {
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
                 <tr>
-                    <td>
-                        <div class="user-inline">
-                            <img src="@AvatarHelper.GetAvatarSource(u.Id, u.FirstName, u.LastName, u.ProfilePicturePath)" alt="@u.FullName" class="avatar avatar--sm" />
-                            <strong>@u.FullName</strong>
-                        </div>
-                    </td>
-                    <td>@u.Email</td>
-                    <td><code style="font-size:11px">@u.EmployeeCode</code></td>
-                    <td>
-                        @foreach (var r in u.Roles)
-                        {
-                            <span class="badge badge--role">@r</span>
-                        }
-                    </td>
-                    <td>
-                        <div>@u.PasswordStatus.AgeDays day(s)</div>
-                        <div style="font-size:12px;color:var(--text-muted)">
-                            Since @(u.PasswordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "N/A")
-                        </div>
-                        @if (u.PasswordStatus.IsExpired)
-                        {
-                            <span class="badge badge--fail">Expired</span>
-                        }
-                        else if (u.PasswordStatus.IsExpiringSoon)
-                        {
-                            <span class="badge badge--warning">@u.PasswordStatus.DaysRemaining day(s) left</span>
-                        }
-                        else
-                        {
-                            <span class="badge badge--pass">@u.PasswordStatus.DaysRemaining day(s) left</span>
-                        }
-                    </td>
-                    <td>@u.AssignedClientsCount</td>
-                    <td>
-                        <span class="badge @(u.IsActive ? "badge--pass" : "badge--fail")">
-                            @(u.IsActive ? "Active" : "Inactive")
-                        </span>
-                        @if (u.IsLockedOut)
-                        {
-                            <span class="badge badge--fail" title="Locked until @(u.LockoutEnd?.ToLocalTime().ToString("HH:mm") ?? "unknown")">Locked</span>
-                        }
-                    </td>
-                    <td>@(u.LastLoginAt.HasValue ? u.LastLoginAt.Value.ToString("dd MMM HH:mm") : "Never")</td>
-                    <td>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap">
-                            <a asp-action="EditUser" asp-route-id="@u.Id" class="btn btn-sm btn-primary">Edit</a>
-
-                            <form asp-action="ToggleUserActive" method="post" style="display:inline">
-                                @Html.AntiForgeryToken()
-                                <input type="hidden" name="id" value="@u.Id" />
-                                <button type="submit" class="btn btn-sm @(u.IsActive ? "btn-warning" : "btn-success")">
-                                    @(u.IsActive ? "Deactivate" : "Activate")
-                                </button>
-                            </form>
-
-                            <button class="btn btn-sm btn-secondary"
-                                onclick="showResetPwd('@u.Id', '@u.FullName')">Reset Pwd</button>
-
+                    <th>Name</th><th>Email</th><th>Code</th><th>Role</th>
+                    <th>Password Age</th><th>Engagements</th><th>Status</th><th>Last Login</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in Model)
+                {
+                    <tr>
+                        <td>
+                            <div class="user-inline">
+                                <img src="@AvatarHelper.GetAvatarSource(u.Id, u.FirstName, u.LastName, u.ProfilePicturePath)" alt="@u.FullName" class="avatar avatar--sm" />
+                                <strong>@u.FullName</strong>
+                            </div>
+                        </td>
+                        <td>@u.Email</td>
+                        <td><code style="font-size:11px">@u.EmployeeCode</code></td>
+                        <td>
+                            @foreach (var r in u.Roles)
+                            {
+                                <span class="badge badge--role">@r</span>
+                            }
+                        </td>
+                        <td>
+                            <div>@u.PasswordStatus.AgeDays day(s)</div>
+                            <div style="font-size:12px;color:var(--text-muted)">
+                                Since @(u.PasswordStatus.ReferenceDateUtc?.ToString("dd MMM yyyy") ?? "N/A")
+                            </div>
+                            @if (u.PasswordStatus.IsExpired)
+                            {
+                                <span class="badge badge--fail">Expired</span>
+                            }
+                            else if (u.PasswordStatus.IsExpiringSoon)
+                            {
+                                <span class="badge badge--warning">@u.PasswordStatus.DaysRemaining day(s) left</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge--pass">@u.PasswordStatus.DaysRemaining day(s) left</span>
+                            }
+                        </td>
+                        <td>@u.AssignedClientsCount</td>
+                        <td>
+                            <span class="badge @(u.IsActive ? "badge--pass" : "badge--fail")">
+                                @(u.IsActive ? "Active" : "Inactive")
+                            </span>
                             @if (u.IsLockedOut)
                             {
-                                <form asp-action="UnlockUser" method="post" style="display:inline">
+                                <span class="badge badge--fail" title="Locked until @(u.LockoutEnd?.ToLocalTime().ToString("HH:mm") ?? "unknown")">Locked</span>
+                            }
+                        </td>
+                        <td>@(u.LastLoginAt.HasValue ? u.LastLoginAt.Value.ToString("dd MMM HH:mm") : "Never")</td>
+                        <td>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap">
+                                <a asp-action="EditUser" asp-route-id="@u.Id" class="btn btn-sm btn-primary">Edit</a>
+
+                                <form asp-action="ToggleUserActive" method="post" style="display:inline">
                                     @Html.AntiForgeryToken()
                                     <input type="hidden" name="id" value="@u.Id" />
-                                    <button type="submit" class="btn btn-sm btn-warning">Unlock</button>
+                                    <button type="submit" class="btn btn-sm @(u.IsActive ? "btn-warning" : "btn-success")">
+                                        @(u.IsActive ? "Deactivate" : "Activate")
+                                    </button>
                                 </form>
-                            }
+
+                                <button class="btn btn-sm btn-secondary"
+                                    onclick="showResetPwd('@u.Id', '@u.FullName')">Reset Pwd</button>
+
+                                @if (u.IsLockedOut)
+                                {
+                                    <form asp-action="UnlockUser" method="post" style="display:inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@u.Id" />
+                                        <button type="submit" class="btn btn-sm btn-warning">Unlock</button>
+                                    </form>
+                                }
 
                             @if (!u.IsActive && !string.Equals(u.Email, currentUserEmail, StringComparison.OrdinalIgnoreCase))
                             {
@@ -135,6 +136,7 @@
             }
         </tbody>
     </table>
+</div>
 </div>
 
 <!-- Reset Password Modal -->

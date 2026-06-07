@@ -174,14 +174,22 @@ namespace HemisAudit.Controllers
                 QualMinTimeWilCol     = review.Summary.QualMinTimeWilCol,
                 QualHeqfCol           = review.Summary.QualHeqfCol,
                 QualTotalSubsidyCol   = review.Summary.QualTotalSubsidyCol,
+                CesmTable             = review.Summary.CesmTable,
+                CesmIdCol             = review.Summary.CesmIdCol,
+                CesmCodeCol           = review.Summary.CesmCodeCol,
                 PqmTable              = review.Summary.PqmTable,
                 PqmNameCol            = review.Summary.PqmNameCol,
                 PqmQualTypeCol        = review.Summary.PqmQualTypeCol,
+                PqmCesmCodeCol        = review.Summary.PqmCesmCodeCol,
+                PqmCesmCode1Col       = review.Summary.PqmCesmCode1Col,
                 PqmMinTimeTotalCol    = review.Summary.PqmMinTimeTotalCol,
                 PqmWilCol             = review.Summary.PqmWilCol,
                 PqmAccreditationCol   = review.Summary.PqmAccreditationCol,
                 PqmTotalSubsidyCol    = review.Summary.PqmTotalSubsidyCol,
-                HeqfIndicatorCodesCsv = review.Summary.HeqfIndicatorCodesCsv
+                HeqfIndicatorCodesCsv = review.Summary.HeqfIndicatorCodesCsv,
+                UseMPrefixPopulationSplit = review.Summary.UseMPrefixPopulationSplit || review.Summary.ExcludeMPrefixPattern,
+                ExcludeMPrefixPattern = review.Summary.UseMPrefixPopulationSplit || review.Summary.ExcludeMPrefixPattern,
+                PostgraduateTypesCsv = review.Summary.PostgraduateTypesCsv
             });
             return View(review);
         }
@@ -659,7 +667,7 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportRule38Excel(review.Summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule38_QUAL_PQM_Validation_Run_{runId}.xlsx");
+                $"Rule38_QUAL_CESM_PQM_Validation_Run_{runId}.xlsx");
         }
 
         [HttpGet]
@@ -681,7 +689,7 @@ namespace HemisAudit.Controllers
                 return RedirectToAction(nameof(Run), new { id = runId });
 
             var bytes = _export.ExportRule38Csv(review.Summary, true);
-            return File(bytes, "text/csv", $"Rule38_QUAL_PQM_Exceptions_Run_{runId}.csv");
+            return File(bytes, "text/csv", $"Rule38_QUAL_CESM_PQM_Exceptions_Run_{runId}.csv");
         }
 
         [HttpGet]
@@ -705,17 +713,25 @@ namespace HemisAudit.Controllers
                 QualMinTimeWilCol     = review.Summary.QualMinTimeWilCol,
                 QualHeqfCol           = review.Summary.QualHeqfCol,
                 QualTotalSubsidyCol   = review.Summary.QualTotalSubsidyCol,
+                CesmTable             = review.Summary.CesmTable,
+                CesmIdCol             = review.Summary.CesmIdCol,
+                CesmCodeCol           = review.Summary.CesmCodeCol,
                 PqmTable              = review.Summary.PqmTable,
                 PqmNameCol            = review.Summary.PqmNameCol,
                 PqmQualTypeCol        = review.Summary.PqmQualTypeCol,
+                PqmCesmCodeCol        = review.Summary.PqmCesmCodeCol,
+                PqmCesmCode1Col       = review.Summary.PqmCesmCode1Col,
                 PqmMinTimeTotalCol    = review.Summary.PqmMinTimeTotalCol,
                 PqmWilCol             = review.Summary.PqmWilCol,
                 PqmAccreditationCol   = review.Summary.PqmAccreditationCol,
                 PqmTotalSubsidyCol    = review.Summary.PqmTotalSubsidyCol,
-                HeqfIndicatorCodesCsv = review.Summary.HeqfIndicatorCodesCsv
+                HeqfIndicatorCodesCsv = review.Summary.HeqfIndicatorCodesCsv,
+                UseMPrefixPopulationSplit = review.Summary.UseMPrefixPopulationSplit || review.Summary.ExcludeMPrefixPattern,
+                ExcludeMPrefixPattern = review.Summary.UseMPrefixPopulationSplit || review.Summary.ExcludeMPrefixPattern,
+                PostgraduateTypesCsv = review.Summary.PostgraduateTypesCsv
             };
             var bytes = _export.ExportSql(_rule38.GenerateSql(request));
-            return File(bytes, "application/sql", $"Rule38_QUAL_PQM_Validation_Run_{runId}.sql");
+            return File(bytes, "application/sql", $"Rule38_QUAL_CESM_PQM_Validation_Run_{runId}.sql");
         }
 
         [HttpPost]
@@ -725,7 +741,7 @@ namespace HemisAudit.Controllers
             var bytes = _export.ExportRule38Excel(summary);
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                $"Rule38_QUAL_PQM_Validation_{Ts()}.xlsx");
+                $"Rule38_QUAL_CESM_PQM_Validation_{Ts()}.xlsx");
         }
 
         [HttpPost]
@@ -741,7 +757,7 @@ namespace HemisAudit.Controllers
         {
             summary = await ResolveExportSummaryAsync(summary);
             var bytes = _export.ExportRule38Csv(summary, true);
-            return File(bytes, "text/csv", $"Rule38_QUAL_PQM_Exceptions_{Ts()}.csv");
+            return File(bytes, "text/csv", $"Rule38_QUAL_CESM_PQM_Exceptions_{Ts()}.csv");
         }
 
         [HttpPost]
@@ -759,7 +775,7 @@ namespace HemisAudit.Controllers
             }
 
             var bytes = _export.ExportSql(_rule38.GenerateSql(request));
-            return File(bytes, "application/sql", $"Rule38_QUAL_PQM_Validation_{Ts()}.sql");
+            return File(bytes, "application/sql", $"Rule38_QUAL_CESM_PQM_Validation_{Ts()}.sql");
         }
 
         private async Task<Rule38RunReviewViewModel?> LoadAuthorizedSavedRunAsync(int runId, bool requireDownloadAccess)

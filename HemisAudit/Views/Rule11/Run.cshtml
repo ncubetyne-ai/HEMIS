@@ -187,10 +187,21 @@
                 <div class="stat-card__value">@Model.Summary.FailCount.ToString("N0")</div>
             </div>
             <div class="stat-card">
+                <div class="stat-card__label">Pass (Review)</div>
+                <div class="stat-card__value" style="color:#b45309">@Model.Summary.ReviewCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-card__label">Exception Rate</div>
                 <div class="stat-card__value">@Model.Summary.ExceptionRate.ToString("F2")%</div>
             </div>
         </div>
+
+        @if (Model.Summary.ReviewCount > 0)
+        {
+            <div class="alert alert--warning" style="margin-bottom:24px">
+                @Model.Summary.ReviewCount.ToString("N0") record(s) passed on CESM leading-digit alignment and still need manual review.
+            </div>
+        }
 
         <div class="card" style="padding:20px">
             <h3 class="section-title" style="margin-top:0">Run Summary</h3>
@@ -333,6 +344,7 @@
                                 <th>Name Match</th>
                                 <th>HEQF Type Match</th>
                                 <th>Result</th>
+                                <th>Reason</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -355,6 +367,7 @@
                                     <td><span class="badge @(item.NameMatch ? "badge--pass" : "badge--fail")">@(item.NameMatch ? "YES" : "NO")</span></td>
                                     <td><span class="badge @(item.HeqfTypeMatch ? "badge--pass" : "badge--fail")">@(item.HeqfTypeMatch ? "YES" : "NO")</span></td>
                                     <td><span class="badge @(item.ValidationResult == "PASS" ? "badge--pass" : "badge--fail")">@item.ValidationResult</span></td>
+                                    <td style="font-size:12px;color:@(item.NeedsReview ? "#92400e" : item.ValidationResult == "PASS" ? "#166534" : "#991b1b")">@(item.ExceptionReason ?? "")</td>
                                 </tr>
                             }
                         </tbody>

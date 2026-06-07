@@ -1,3 +1,4 @@
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -328,13 +329,9 @@ namespace HemisAudit.Controllers
         [HttpGet]
         public async Task<IActionResult> DownloadExcel([FromQuery] int runId)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule60.GetSavedRunAsync(runId, user?.Email, includeFullResults: true);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-
-            var bytes = BuildExcelExport(review.Summary!);
+            var review = await LoadAuthorizedSavedRunAsync(runId, requireDownloadAccess: true);
+            if (review == null) return RedirectToAction(nameof(Run), new { id = runId });
+            var bytes = _export.ExportRule60Excel(review.Summary!);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"Rule60_CRSE_H16CRSE_Agreement_Run_{runId}.xlsx");
         }
@@ -342,12 +339,8 @@ namespace HemisAudit.Controllers
         [HttpGet]
         public async Task<IActionResult> DownloadCsv([FromQuery] int runId)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule60.GetSavedRunAsync(runId, user?.Email, includeFullResults: true);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-
+            var review = await LoadAuthorizedSavedRunAsync(runId, requireDownloadAccess: true);
+            if (review == null) return RedirectToAction(nameof(Run), new { id = runId });
             var bytes = BuildCsvExport(review.Summary!, false);
             return File(bytes, "text/csv", $"Rule60_CRSE_H16CRSE_Agreement_Run_{runId}.csv");
         }
@@ -355,12 +348,8 @@ namespace HemisAudit.Controllers
         [HttpGet]
         public async Task<IActionResult> DownloadExceptionsCsv([FromQuery] int runId)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule60.GetSavedRunAsync(runId, user?.Email, includeFullResults: true);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-
+            var review = await LoadAuthorizedSavedRunAsync(runId, requireDownloadAccess: true);
+            if (review == null) return RedirectToAction(nameof(Run), new { id = runId });
             var bytes = BuildCsvExport(review.Summary!, true);
             return File(bytes, "text/csv", $"Rule60_Exceptions_Run_{runId}.csv");
         }
@@ -368,12 +357,8 @@ namespace HemisAudit.Controllers
         [HttpGet]
         public async Task<IActionResult> DownloadSql([FromQuery] int runId)
         {
-            var user = await _users.GetUserAsync(User);
-            var role = await GetCurrentSystemRoleAsync(user);
-            var review = await _rule60.GetSavedRunAsync(runId, user?.Email, includeFullResults: true);
-            if (review == null || !await _systemDb.CanAccessClientResultsAsync(review.ClientId, user, role))
-                return NotFound();
-
+            var review = await LoadAuthorizedSavedRunAsync(runId, requireDownloadAccess: true);
+            if (review == null) return RedirectToAction(nameof(Run), new { id = runId });
             var req = BuildRequestFromSummary(review.Summary!);
             var bytes = _export.ExportSql(_rule60.GenerateSql(req));
             return File(bytes, "application/sql", $"Rule60_CRSE_H16CRSE_Agreement_Run_{runId}.sql");
@@ -384,7 +369,7 @@ namespace HemisAudit.Controllers
         {
             var review = await LoadAuthorizedSavedRunAsync(runId, requireDownloadAccess: true);
             if (review == null) return RedirectToAction(nameof(Run), new { id = runId });
-            var bytes = BuildExcelExport(review.Summary!);
+            var bytes = _export.ExportRule60Excel(review.Summary!);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 $"Rule60_CRSE_H16CRSE_Agreement_Run_{runId}.xlsx");
         }
@@ -566,6 +551,159 @@ namespace HemisAudit.Controllers
                 line.Append($"\"{row.OverallResult}\",\"{row.DisagreeDetail.Replace("\"", "\"\"")}\"");
                 sw.WriteLine(line.ToString());
             }
+        }
+
+        private static byte[] BuildXlsxExport(Rule41ValidationSummary summary)
+        {
+            using var workbook = new XLWorkbook();
+
+            var summarySheet = workbook.Worksheets.Add("Summary");
+            summarySheet.Cell(1, 1).Value = "HEMIS RULE 60 - CRSE vs H16CRSE Agreement";
+            summarySheet.Range(1, 1, 1, 2).Merge();
+            summarySheet.Cell(1, 1).Style.Font.Bold = true;
+            summarySheet.Cell(1, 1).Style.Font.FontSize = 14;
+
+            var summaryRows = new (string Label, string Value)[]
+            {
+                ("Database", summary.Database),
+                ("Timestamp", summary.Timestamp),
+                ("Status", summary.Status),
+                ("CRSE Table", summary.Reconc.StudTable),
+                ("H16CRSE Table", summary.Reconc.AuditTable),
+                ("CRSE Join Key", summary.Reconc.StudKey),
+                ("H16CRSE Join Key", summary.Reconc.AuditKey),
+                ("Total Count", summary.Reconc.TotalCount.ToString()),
+                ("Agree Count", summary.Reconc.AgreeCount.ToString()),
+                ("Disagree Count", summary.Reconc.DisagreeCount.ToString()),
+                ("Missing Count", summary.Reconc.MissingCount.ToString()),
+                ("Exception Rate", $"{summary.Reconc.ExceptionRate:F2}%")
+            };
+
+            summarySheet.Cell(3, 1).Value = "Field";
+            summarySheet.Cell(3, 2).Value = "Value";
+            summarySheet.Range(3, 1, 3, 2).Style.Font.Bold = true;
+            summarySheet.Range(3, 1, 3, 2).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+
+            var summaryRowIndex = 4;
+            foreach (var item in summaryRows)
+            {
+                summarySheet.Cell(summaryRowIndex, 1).Value = item.Label;
+                summarySheet.Cell(summaryRowIndex, 2).Value = item.Value;
+                summaryRowIndex++;
+            }
+
+            var mappingStartRow = summaryRowIndex + 2;
+            summarySheet.Cell(mappingStartRow, 1).Value = "Field Mappings";
+            summarySheet.Cell(mappingStartRow, 1).Style.Font.Bold = true;
+            summarySheet.Cell(mappingStartRow + 1, 1).Value = "Label";
+            summarySheet.Cell(mappingStartRow + 1, 2).Value = "CRSE Column";
+            summarySheet.Cell(mappingStartRow + 1, 3).Value = "H16CRSE Column";
+            summarySheet.Range(mappingStartRow + 1, 1, mappingStartRow + 1, 3).Style.Font.Bold = true;
+            summarySheet.Range(mappingStartRow + 1, 1, mappingStartRow + 1, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+
+            var mappingRowIndex = mappingStartRow + 2;
+            foreach (var pair in summary.Reconc.Pairs)
+            {
+                summarySheet.Cell(mappingRowIndex, 1).Value = pair.Label;
+                summarySheet.Cell(mappingRowIndex, 2).Value = pair.StudCol;
+                summarySheet.Cell(mappingRowIndex, 3).Value = pair.AuditCol;
+                mappingRowIndex++;
+            }
+
+            summarySheet.Columns().AdjustToContents();
+
+            WriteReconciliationWorksheet(
+                workbook,
+                "All Results",
+                summary.Reconc,
+                summary.Reconc.ExceptionRows.Concat(summary.Reconc.Rows));
+            WriteReconciliationWorksheet(
+                workbook,
+                "Exceptions",
+                summary.Reconc,
+                summary.Reconc.ExceptionRows);
+
+            using var ms = new System.IO.MemoryStream();
+            workbook.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        private static void WriteReconciliationWorksheet(
+            XLWorkbook workbook,
+            string sheetName,
+            Rule41ReconciliationSummary reconc,
+            IEnumerable<Rule41ReconcRow> rows)
+        {
+            var worksheet = workbook.Worksheets.Add(sheetName);
+            worksheet.Cell(1, 1).Value = "CRSE vs H16CRSE Reconciliation";
+            worksheet.Cell(1, 1).Style.Font.Bold = true;
+            worksheet.Cell(1, 1).Style.Font.FontSize = 13;
+
+            worksheet.Cell(2, 1).Value = "CRSE Table";
+            worksheet.Cell(2, 2).Value = reconc.StudTable;
+            worksheet.Cell(2, 3).Value = "H16CRSE Table";
+            worksheet.Cell(2, 4).Value = reconc.AuditTable;
+
+            worksheet.Cell(3, 1).Value = "Total";
+            worksheet.Cell(3, 2).Value = reconc.TotalCount;
+            worksheet.Cell(3, 3).Value = "Agree";
+            worksheet.Cell(3, 4).Value = reconc.AgreeCount;
+            worksheet.Cell(3, 5).Value = "Disagree";
+            worksheet.Cell(3, 6).Value = reconc.DisagreeCount;
+            worksheet.Cell(3, 7).Value = "Missing";
+            worksheet.Cell(3, 8).Value = reconc.MissingCount;
+            worksheet.Cell(3, 9).Value = "Exception Rate";
+            worksheet.Cell(3, 10).Value = $"{reconc.ExceptionRate:F2}%";
+
+            var headerRow = 5;
+            var columnIndex = 1;
+            worksheet.Cell(headerRow, columnIndex++).Value = "Row No";
+            worksheet.Cell(headerRow, columnIndex++).Value = "CRSE Ref";
+
+            foreach (var pair in reconc.Pairs)
+            {
+                worksheet.Cell(headerRow, columnIndex++).Value = $"CRSE_{pair.Label}";
+                worksheet.Cell(headerRow, columnIndex++).Value = $"H16CRSE_{pair.Label}";
+                worksheet.Cell(headerRow, columnIndex++).Value = $"MATCH_{pair.Label}";
+            }
+
+            worksheet.Cell(headerRow, columnIndex++).Value = "Overall Result";
+            worksheet.Cell(headerRow, columnIndex).Value = "Disagree Detail";
+
+            worksheet.Range(headerRow, 1, headerRow, columnIndex).Style.Font.Bold = true;
+            worksheet.Range(headerRow, 1, headerRow, columnIndex).Style.Fill.BackgroundColor = XLColor.FromHtml("#D9EAF7");
+
+            var rowIndex = headerRow + 1;
+            foreach (var row in rows)
+            {
+                var cellIndex = 1;
+                worksheet.Cell(rowIndex, cellIndex++).Value = row.RowNumber;
+                worksheet.Cell(rowIndex, cellIndex++).Value = row.StudentRef;
+
+                foreach (var pair in reconc.Pairs)
+                {
+                    if (row.Fields.TryGetValue(pair.Label, out var field))
+                    {
+                        worksheet.Cell(rowIndex, cellIndex++).Value = field.StudValue;
+                        worksheet.Cell(rowIndex, cellIndex++).Value = field.AuditValue;
+                        worksheet.Cell(rowIndex, cellIndex++).Value = field.Match;
+                    }
+                    else
+                    {
+                        worksheet.Cell(rowIndex, cellIndex++).Value = "-";
+                        worksheet.Cell(rowIndex, cellIndex++).Value = "-";
+                        worksheet.Cell(rowIndex, cellIndex++).Value = "-";
+                    }
+                }
+
+                worksheet.Cell(rowIndex, cellIndex++).Value = row.OverallResult;
+                worksheet.Cell(rowIndex, cellIndex).Value = row.DisagreeDetail;
+                rowIndex++;
+            }
+
+            worksheet.SheetView.FreezeRows(headerRow);
+            worksheet.Range(headerRow, 1, Math.Max(headerRow, rowIndex - 1), columnIndex).SetAutoFilter();
+            worksheet.Columns().AdjustToContents();
         }
 
         private static Rule41ValidationRequest BuildRequestFromSummary(Rule41ValidationSummary s) =>

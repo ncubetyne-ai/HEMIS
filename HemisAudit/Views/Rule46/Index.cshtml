@@ -446,7 +446,7 @@ window.r46Tab = function(tab) {
 
         var statusClass = String(summary.status || '').toUpperCase() === 'PASS' ? 'badge--pass' : 'badge--fail';
         var previewHtml = summary.isPreviewOnly
-            ? '<div class="alert alert--warning" style="margin-bottom:12px">Browser preview is limited to ' + fmt(summary.previewLimit || 0) + ' representative row(s) so both PASS and FAIL filters stay visible. Download Excel or CSV for the full result set.</div>'
+            ? '<div class="alert alert--warning" style="margin-bottom:12px">Browser preview is limited to the first ' + fmt(summary.previewLimit || 0) + ' representative row(s). Download Excel or CSV for the full result set.</div>'
             : '';
         var controlSummary = (summary.controlSummaries || [])[0] || null;
         var controlHtml = controlSummary
@@ -507,7 +507,7 @@ window.r46Tab = function(tab) {
         }
 
         var previewHtml = st.summary.isPreviewOnly
-            ? '<div class="alert alert--warning" style="margin-bottom:12px">Showing a representative browser preview of ' + fmt(rows.length) + ' loaded row(s) from ' + fmt(st.summary.totalValidated || rows.length) + ' total row(s). Download Excel or CSV for the full result set.</div>'
+            ? '<div class="alert alert--warning" style="margin-bottom:12px">Showing the first ' + fmt(rows.length) + ' representative browser row(s). Download Excel or CSV for the full result set.</div>'
             : '';
 
         var body = filtered.map(function(row) {

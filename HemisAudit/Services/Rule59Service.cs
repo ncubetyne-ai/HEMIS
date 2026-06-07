@@ -8,7 +8,7 @@ namespace HemisAudit.Services
 {
     public class Rule59Service : IRule59Service
     {
-        private const int BrowserPreviewRowLimit = 50;
+        private const int BrowserPreviewRowLimit = 10;
         private readonly IConfiguration _configuration;
 
         public Rule59Service(IConfiguration configuration)

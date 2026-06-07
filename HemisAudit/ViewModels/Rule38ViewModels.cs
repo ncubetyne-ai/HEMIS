@@ -3,7 +3,7 @@ using HemisAudit.Helpers;
 namespace HemisAudit.ViewModels
 {
     // ═══════════════════════════════════════════════════════════════════════════
-    // RULE 38 – ENHANCED QUAL vs PQM VALIDATION (5.1.1 – 5.1.6)
+    // RULE 38 – ENHANCED QUAL -> CESM -> PQM VALIDATION (5.1.1 – 5.1.6)
     // ═══════════════════════════════════════════════════════════════════════════
 
     public class Rule38ValidationRequest
@@ -26,10 +26,17 @@ namespace HemisAudit.ViewModels
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
 
+        // CESM table
+        public string CesmTable { get; set; } = "dbo_CESM";
+        public string CesmIdCol { get; set; } = "_001";
+        public string CesmCodeCol { get; set; } = "_006";
+
         // PQM table
         public string PqmTable { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
         public string PqmQualTypeCol { get; set; } = "HEQF_Qual_Type";
+        public string PqmCesmCodeCol { get; set; } = "CESM_CODE";
+        public string PqmCesmCode1Col { get; set; } = "CESM_CODE1";
         public string PqmMinTimeTotalCol { get; set; } = "Total2";
         public string PqmWilCol { get; set; } = "WIL_EL2";
         public string PqmAccreditationCol { get; set; } = "CHE_HEQC_Accreditation_Approval_Ref_Nr";
@@ -40,7 +47,10 @@ namespace HemisAudit.ViewModels
         // QUAL._084 is expected to be 'Y'; otherwise 'N'.
         public string HeqfIndicatorCodesCsv { get; set; } = "H/,HEQF,HEQSF";
 
-        // M-prefix exclusion: skip qualification codes matching M_____ pattern
+        // Population split option: treat qualification codes matching M_____ as postgraduate.
+        public bool UseMPrefixPopulationSplit { get; set; } = false;
+
+        // Legacy property kept for saved-run compatibility. It now maps to population split behavior only.
         public bool ExcludeMPrefixPattern { get; set; } = false;
 
         // Postgraduate type codes: comma-separated _005 values that classify a qualification as postgraduate
@@ -53,15 +63,23 @@ namespace HemisAudit.ViewModels
         public string Database { get; set; } = "";
         public string Driver { get; set; } = "ODBC Driver 17 for SQL Server";
         public string QualTable { get; set; } = "dbo_QUAL";
+        public string CesmTable { get; set; } = "dbo_CESM";
         public string PqmTable { get; set; } = "PQM";
+        public string QualIdCol { get; set; } = "_001";
+        public string CesmIdCol { get; set; } = "_001";
         public string QualApprovalCol { get; set; } = "_004";
         public string QualApprovalValue { get; set; } = "A";
+        public bool UseMPrefixPopulationSplit { get; set; }
+        public bool ExcludeMPrefixPattern { get; set; }
+        public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
     }
 
     public class Rule38VerifyResult
     {
         public bool Success { get; set; }
         public int QualTotal { get; set; }
+        public int CesmTotal { get; set; }
+        public int MergedTotal { get; set; }
         public int ApprovedCount { get; set; }
         public int PqmTotal { get; set; }
         public string? Error { get; set; }
@@ -72,6 +90,7 @@ namespace HemisAudit.ViewModels
         public bool Success { get; set; }
         public List<string> Tables { get; set; } = new();
         public string? AutoQualTable { get; set; }
+        public string? AutoCesmTable { get; set; }
         public string? AutoPqmTable { get; set; }
         public string? Error { get; set; }
     }
@@ -98,14 +117,22 @@ namespace HemisAudit.ViewModels
         public string? MinTimeWIL { get; set; }
         public string? HeqfIndicator { get; set; }
         public string? TotalSubsidy { get; set; }
+        public string? CesmCode { get; set; }
+        public string PopulationType { get; set; } = "Undergraduate";
+        public string? PopulationClassificationNote { get; set; }
 
         // PQM values (null when no PQM match)
         public bool HasPqmMatch { get; set; }
+        public string? PqmName { get; set; }
         public string? PqmQualType { get; set; }
+        public string? PqmCesmCode { get; set; }
+        public string? PqmCesmCode1 { get; set; }
         public string? PqmMinTimeTotal { get; set; }
         public string? PqmWIL { get; set; }
         public string? PqmAccreditation { get; set; }
         public string? PqmTotalSubsidy { get; set; }
+        public bool NeedsReview { get; set; }
+        public string? MatchNote { get; set; }
 
         // Per-control results
         public bool C2_TypeMatch { get; set; }        // 5.1.2
@@ -137,6 +164,9 @@ namespace HemisAudit.ViewModels
         public int ApprovedCount { get; set; }
         public int PqmMatchCount { get; set; }
         public int PqmNoMatchCount { get; set; }
+        public int ReviewRequiredCount { get; set; }
+        public int UndergraduateCount { get; set; }
+        public int PostgraduateCount { get; set; }
         public int OverallPassCount { get; set; }
         public int OverallFailCount { get; set; }
         public decimal ExceptionRate { get; set; }
@@ -155,14 +185,20 @@ namespace HemisAudit.ViewModels
         public string QualMinTimeWilCol { get; set; } = "_054";
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
+        public string CesmTable { get; set; } = "dbo_CESM";
+        public string CesmIdCol { get; set; } = "_001";
+        public string CesmCodeCol { get; set; } = "_006";
         public string PqmTable { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
         public string PqmQualTypeCol { get; set; } = "HEQF_Qual_Type";
+        public string PqmCesmCodeCol { get; set; } = "CESM_CODE";
+        public string PqmCesmCode1Col { get; set; } = "CESM_CODE1";
         public string PqmMinTimeTotalCol { get; set; } = "Total2";
         public string PqmWilCol { get; set; } = "WIL_EL2";
         public string PqmAccreditationCol { get; set; } = "CHE_HEQC_Accreditation_Approval_Ref_Nr";
         public string PqmTotalSubsidyCol { get; set; } = "Total2";
         public string HeqfIndicatorCodesCsv { get; set; } = "H/,HEQF,HEQSF";
+        public bool UseMPrefixPopulationSplit { get; set; } = false;
         public bool ExcludeMPrefixPattern { get; set; } = false;
         public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
 
@@ -193,14 +229,20 @@ namespace HemisAudit.ViewModels
         public string QualMinTimeWilCol { get; set; } = "_054";
         public string QualHeqfCol { get; set; } = "_084";
         public string QualTotalSubsidyCol { get; set; } = "_090";
+        public string CesmTable { get; set; } = "dbo_CESM";
+        public string CesmIdCol { get; set; } = "_001";
+        public string CesmCodeCol { get; set; } = "_006";
         public string PqmTable { get; set; } = "PQM";
         public string PqmNameCol { get; set; } = "Authorised_Qualification_Name";
         public string PqmQualTypeCol { get; set; } = "HEQF_Qual_Type";
+        public string PqmCesmCodeCol { get; set; } = "CESM_CODE";
+        public string PqmCesmCode1Col { get; set; } = "CESM_CODE1";
         public string PqmMinTimeTotalCol { get; set; } = "Total2";
         public string PqmWilCol { get; set; } = "WIL_EL2";
         public string PqmAccreditationCol { get; set; } = "CHE_HEQC_Accreditation_Approval_Ref_Nr";
         public string PqmTotalSubsidyCol { get; set; } = "Total2";
         public string HeqfIndicatorCodesCsv { get; set; } = "H/,HEQF,HEQSF";
+        public bool UseMPrefixPopulationSplit { get; set; } = false;
         public bool ExcludeMPrefixPattern { get; set; } = false;
         public string PostgraduateTypesCsv { get; set; } = "07,27,28,49,72,73,08,30,50,74,75";
         public string CurrentUserEngagementRole { get; set; } = "";

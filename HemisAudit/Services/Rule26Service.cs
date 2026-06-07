@@ -11,7 +11,7 @@ namespace HemisAudit.Services
     {
         private const int RuleNumber = 26;
         private const string RuleName = "Rule 26 - dbo_PROF to Payroll_Sample 4-Control Validation";
-        private const int BrowserPreviewRowLimit = 1000;
+        private const int BrowserPreviewRowLimit = 10;
 
         private readonly IConfiguration _configuration;
         private readonly IPendingValidationCacheService _pendingValidationCache;

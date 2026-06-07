@@ -8,7 +8,7 @@ namespace HemisAudit.Services
 {
     public class Rule52Service : IRule52Service
     {
-        private const int BrowserPreviewRowLimit = 50;
+        private const int BrowserPreviewRowLimit = 10;
         private readonly IConfiguration _configuration;
         private readonly IPendingValidationCacheService _pendingValidationCache;
 

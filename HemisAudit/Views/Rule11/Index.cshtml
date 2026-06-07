@@ -954,6 +954,7 @@ function renderSectionHeader(title, subtitle, meta) {
 function renderValidationResults(r) {
     if (!state.validationView) state.validationView = { filter: 'ALL', page: 1, pageSize: uiPreviewRowLimit };
     const rate = parseFloat(r.exceptionRate);
+    const reviewCount = Number(r.reviewCount || 0);
     const rateColor = rate > 5 ? '#C62828' : rate > 1 ? '#E65100' : '#2E7D32';
     const allRows = r.validationRows || [];
     const filteredRows = allRows.filter(row => state.validationView.filter === 'ALL' || row.validationResult === state.validationView.filter);
@@ -976,8 +977,8 @@ function renderValidationResults(r) {
                             <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_QUAL</th>
                             <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_CESM</th>
                             <th colspan="3" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">PQM</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Results</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Comments</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Reason</th>
                         </tr>
                         <tr>
                             <th style="background:#AED581;font-size:11px">_001</th>
@@ -998,7 +999,7 @@ function renderValidationResults(r) {
                     </thead>
                     <tbody>
                         ${pageRows.map(row => `
-                        <tr style="${row.validationResult === 'PASS' ? 'background:#f3fff3' : 'background:#fff3f3'}">
+                        <tr style="${row.needsReview ? 'background:#fff8e1' : row.validationResult === 'PASS' ? 'background:#f3fff3' : 'background:#fff3f3'}">
                             <td style="text-align:center">${row.validationNumber}</td>
                             <td>${escapeHtml(row.qualId || '')}</td>
                             <td>${escapeHtml(row.qualName || '')}</td>
@@ -1010,12 +1011,12 @@ function renderValidationResults(r) {
                             <td>${escapeHtml(row.qual090 || '')}</td>
                             <td style="font-weight:700;color:${getPopulationType(row.qualHeqfType, row.populationType) === 'Postgraduate' ? '#1B5E20' : '#1565C0'}">${escapeHtml(getPopulationType(row.qualHeqfType, row.populationType))}</td>
                             <td>${escapeHtml(row.qualId || '')}</td>
-                            <td style="${row.validationResult !== 'PASS' && !row.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(row.cesmCode || '')}</td>
+                            <td style="${row.needsReview || (row.validationResult !== 'PASS' && !row.cesmCodeMatch) ? 'background:#fff3e0' : ''}">${escapeHtml(row.cesmCode || '')}</td>
                             <td style="${!row.pqmName ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmName ? escapeHtml(row.pqmName) : 'To be confirmed manually if we did not get Auto'}</td>
                             <td style="${!row.pqmHeqfType ? 'color:#888;font-style:italic;font-size:11px' : ''}">${row.pqmHeqfType ? escapeHtml(row.pqmHeqfType) : 'To be confirmed manually'}</td>
-                            <td style="${row.validationResult !== 'PASS' && !row.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(row.pqmCode || '')}</td>
+                            <td style="${row.needsReview || (row.validationResult !== 'PASS' && !row.cesmCodeMatch) ? 'background:#fff3e0' : ''}">${escapeHtml(row.pqmCode || '')}</td>
                             <td style="text-align:center"><span class="badge badge--${row.validationResult === 'PASS' ? 'pass' : 'fail'}">${escapeHtml(row.validationResult)}</span></td>
-                            <td></td>
+                            <td style="font-size:11px;color:${row.needsReview ? '#92400e' : row.validationResult === 'PASS' ? '#166534' : '#991b1b'}">${escapeHtml(row.exceptionReason || (row.validationResult === 'PASS' ? 'All three criteria matched: qualification name (_003), HEQF type (_005), and CESM code (_006)' : ''))}</td>
                         </tr>`).join('')}
                     </tbody>
                 </table>
@@ -1035,12 +1036,15 @@ function renderValidationResults(r) {
             <div class="stat-card"><div class="stat-card__label">Records Validated</div><div class="stat-card__value">${r.totalValidated.toLocaleString()}</div></div>
             <div class="stat-card stat-card--pass"><div class="stat-card__label">PASS (All matched)</div><div class="stat-card__value">${r.passCount.toLocaleString()}</div></div>
             <div class="stat-card stat-card--fail"><div class="stat-card__label">FAIL (Mismatch)</div><div class="stat-card__value">${r.failCount.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-card__label">PASS (Review)</div><div class="stat-card__value" style="color:#B45309">${reviewCount.toLocaleString()}</div></div>
             <div class="stat-card"><div class="stat-card__label">Exception Rate</div><div class="stat-card__value" style="color:${rateColor}">${rate.toFixed(2)}%</div></div>
         </div>
         <div class="overall-status ${r.status === 'PASS' ? 'status--pass' : 'status--fail'}">
             ${r.status === 'PASS'
-                ? 'VALIDATION PASSED — All qualification names, HEQF types, and CESM codes matched the PQM register'
-                : 'VALIDATION FAILED — ' + r.failCount.toLocaleString() + ' record(s) could not be matched'}
+                ? (reviewCount > 0
+                    ? 'VALIDATION PASSED — ' + reviewCount.toLocaleString() + ' record(s) passed on CESM leading-digit alignment and still need manual review'
+                    : 'VALIDATION PASSED — All qualification names, HEQF types, and CESM codes matched the PQM register')
+                : 'VALIDATION FAILED — ' + r.failCount.toLocaleString() + ' record(s) could not be matched' + (reviewCount > 0 ? '; ' + reviewCount.toLocaleString() + ' pass row(s) also need manual review' : '')}
         </div>
         <div class="results-table-panel">
             <div class="panel-title-row">
@@ -1093,8 +1097,7 @@ function renderExceptions(r) {
             <td style="${!ex.pqmHeqfType ? 'color:#888;font-style:italic;font-size:11px' : ''}">${ex.pqmHeqfType ? escapeHtml(ex.pqmHeqfType) : 'N/A'}</td>
             <td style="${!ex.cesmCodeMatch ? 'background:#fff3e0' : ''}">${escapeHtml(ex.pqmCode || '')}</td>
             <td style="text-align:center"><span class="badge badge--fail">${escapeHtml(ex.validationResult)}</span></td>
-            <td style="font-size:11px">${escapeHtml(ex.exceptionReason)}</td>
-            <td></td>
+            <td style="font-size:11px;color:#991b1b">${escapeHtml(ex.exceptionReason || '')}</td>
         </tr>`).join('');
 
     el.innerHTML = `
@@ -1109,9 +1112,8 @@ function renderExceptions(r) {
                             <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_QUAL</th>
                             <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">dbo_CESM</th>
                             <th colspan="3" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">PQM</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Results</th>
+                            <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
                             <th rowspan="2" style="vertical-align:middle;text-align:center">Exception Reason</th>
-                            <th rowspan="2" style="vertical-align:middle;text-align:center">Comments</th>
                         </tr>
                         <tr>
                             <th style="background:#AED581;font-size:11px">_001</th>

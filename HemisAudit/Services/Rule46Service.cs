@@ -10,8 +10,8 @@ namespace HemisAudit.Services
 {
     public class Rule46Service : IRule46Service
     {
-        private const int BrowserPreviewPerResultLimit = 10;
-        private const int BrowserPreviewTotalLimit = 20;
+        private const int BrowserPreviewPerResultLimit = 5;
+        private const int BrowserPreviewTotalLimit = 10;
         private readonly IConfiguration _configuration;
 
         public Rule46Service(IConfiguration configuration)

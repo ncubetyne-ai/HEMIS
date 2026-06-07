@@ -10,6 +10,27 @@
     var moduleNavigation = ViewBag.ModuleNavigation as HemisAudit.ViewModels.ModuleSequenceNavigationViewModel;
     var failRows = Model.Summary.ValidationRows.Where(r => r.ValidationResult == "FAIL").ToList();
     var total = Model.Summary.ApprovedCount > 0 ? (decimal)Model.Summary.ApprovedCount : 1m;
+
+    string BuildReason(HemisAudit.ViewModels.Rule38ValidationRow row)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        if (row.ValidationResult == "FAIL" && row.FailedControls.Any())
+            parts.Add($"Failed: {string.Join(", ", row.FailedControls)}");
+        if (!string.IsNullOrWhiteSpace(row.MatchNote))
+            parts.Add(row.MatchNote);
+        return parts.Count > 0
+            ? string.Join(" | ", parts)
+            : row.ValidationResult == "PASS"
+                ? "All Rule 38 checks matched on the selected PQM row."
+                : "-";
+    }
+
+    string ResolvePqmName(HemisAudit.ViewModels.Rule38ValidationRow row)
+    {
+        if (!string.IsNullOrWhiteSpace(row.PqmName))
+            return row.PqmName;
+        return "Not found in PQM";
+    }
 }
 
 @if (TempData["Success"] != null)
@@ -86,7 +107,7 @@
 @if (Model.Summary.IsPreviewOnly)
 {
     <div class="alert alert--info" style="margin-bottom:24px">
-        This run was saved in preview mode (up to @Model.Summary.PreviewLimit rows per control). Download the full Excel or CSV to see all records.
+        This run was saved in browser preview mode. Download Excel or CSV for the full result set.
     </div>
 }
 
@@ -184,12 +205,24 @@
                 <div class="stat-card__value">@Model.Summary.ApprovedCount.ToString("N0")</div>
             </div>
             <div class="stat-card">
+                <div class="stat-card__label">Undergraduate</div>
+                <div class="stat-card__value">@Model.Summary.UndergraduateCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Postgraduate</div>
+                <div class="stat-card__value">@Model.Summary.PostgraduateCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
                 <div class="stat-card__label">PQM Match</div>
                 <div class="stat-card__value">@Model.Summary.PqmMatchCount.ToString("N0")</div>
             </div>
             <div class="stat-card stat-card--fail">
                 <div class="stat-card__label">PQM No Match</div>
                 <div class="stat-card__value">@Model.Summary.PqmNoMatchCount.ToString("N0")</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card__label">Review Required</div>
+                <div class="stat-card__value">@Model.Summary.ReviewRequiredCount.ToString("N0")</div>
             </div>
             <div class="stat-card stat-card--pass">
                 <div class="stat-card__label">Overall PASS</div>
@@ -225,11 +258,15 @@
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Rule</div>
-                    <div>Rule 38 — Enhanced QUAL vs PQM Validation (5.1.1–5.1.6)</div>
+                    <div>Rule 38 - Enhanced QUAL -> CESM -> PQM Validation (5.1.1-5.1.6)</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">QUAL Table</div>
                     <div>@Model.Summary.QualTable (ID: @Model.Summary.QualIdCol, Name: @Model.Summary.QualNameCol)</div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">CESM Table</div>
+                    <div>@Model.Summary.CesmTable (ID: @Model.Summary.CesmIdCol, Code: @Model.Summary.CesmCodeCol)</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Approval Filter</div>
@@ -245,11 +282,23 @@
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">PQM Columns (C2–C6)</div>
-                    <div>Type: @Model.Summary.PqmQualTypeCol | MinTime: @Model.Summary.PqmMinTimeTotalCol | WIL: @Model.Summary.PqmWilCol | Accred: @Model.Summary.PqmAccreditationCol | Subsidy: @Model.Summary.PqmTotalSubsidyCol</div>
+                    <div>Type: @Model.Summary.PqmQualTypeCol | CESM: @Model.Summary.PqmCesmCodeCol | CESM1: @Model.Summary.PqmCesmCode1Col | MinTime: @Model.Summary.PqmMinTimeTotalCol | WIL: @Model.Summary.PqmWilCol | Accred: @Model.Summary.PqmAccreditationCol | Subsidy: @Model.Summary.PqmTotalSubsidyCol</div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">HEQF Indicator Codes</div>
                     <div><code>@Model.Summary.HeqfIndicatorCodesCsv</code></div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Population Split</div>
+                    <div>
+                        @(Model.Summary.UseMPrefixPopulationSplit
+                            ? "Postgraduate = configured _005 codes or M_____ qualification codes"
+                            : "Postgraduate = configured _005 codes only")
+                    </div>
+                </div>
+                <div>
+                    <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Postgraduate Codes</div>
+                    <div><code>@Model.Summary.PostgraduateTypesCsv</code></div>
                 </div>
                 <div>
                     <div style="color:#757575;font-size:12px;text-transform:uppercase;font-weight:700">Status</div>
@@ -326,43 +375,85 @@
             @if (failRows.Any())
             {
                 <div style="overflow:auto">
-                    <table class="data-table" style="font-size:0.83rem">
+                    <table class="data-table rule11-table" style="font-size:0.83rem">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>QUAL Code</th>
-                                <th>QUAL Name</th>
-                                <th>PQM?</th>
-                                <th title="5.1.2 Type">C2</th>
-                                <th title="5.1.3 MinTime">C3</th>
-                                <th title="5.1.4 WIL">C4</th>
-                                <th title="5.1.5 HEQF">C5</th>
-                                <th title="5.1.6 Subsidy">C6</th>
-                                <th>Failed Controls</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
+                                <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
+                                <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.CesmTable</th>
+                                <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.PqmTable</th>
+                                <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">Exception Reason</th>
+                            </tr>
+                            <tr>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualIdCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualNameCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualApprovalCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualTypeCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeTotalCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeWilCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualHeqfCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualTotalSubsidyCol</th>
+                                <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                                <th style="background:#80DEEA;font-size:11px">@Model.Summary.CesmIdCol</th>
+                                <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">@Model.Summary.CesmCodeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmNameCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmQualTypeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCodeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCode1Col</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmMinTimeTotalCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmWilCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmAccreditationCol</th>
+                                <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">@Model.Summary.PqmTotalSubsidyCol</th>
+                                <th style="background:#D1D5DB;font-size:11px">Review</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.2 Qualification Type">C2</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.3 Minimum Time: Total">C3</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.4 Minimum Time: WIL">C4</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.5 HEQF Indicator">C5</th>
+                                <th style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6 Total Subsidy">C6</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var item in failRows.Take(20))
+                            @foreach (var item in failRows.Take(10))
                             {
-                                <tr>
-                                    <td>@item.ValidationNumber</td>
+                                <tr style="background:#fff3f3" title="Population rule: @item.PopulationClassificationNote | Match: @item.MatchNote">
+                                    <td style="text-align:center">@item.ValidationNumber</td>
                                     <td><strong>@item.QualCode</strong></td>
                                     <td>@item.QualName</td>
-                                    <td><span class="badge @(item.HasPqmMatch ? "badge--pass" : "badge--fail")">@(item.HasPqmMatch ? "YES" : "NO")</span></td>
-                                    <td><span class="@(item.C2_TypeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C2_TypeMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C3_MinTimeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C3_MinTimeMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C4_WILMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C4_WILMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C5_HeqfMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C5_HeqfMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C6_SubsidyMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C6_SubsidyMatch ? "P" : "F")</span></td>
-                                    <td style="color:#991b1b;font-size:0.78rem">@string.Join(", ", item.FailedControls)</td>
+                                    <td>@item.ApprovalStatus</td>
+                                    <td>@item.QualType</td>
+                                    <td>@item.MinTimeTotal</td>
+                                    <td>@item.MinTimeWIL</td>
+                                    <td>@item.HeqfIndicator</td>
+                                    <td>@item.TotalSubsidy</td>
+                                    <td style="font-weight:700;color:@(item.PopulationType == "Postgraduate" ? "#1B5E20" : "#1565C0")">@item.PopulationType</td>
+                                    <td>@item.QualCode</td>
+                                    <td>@item.CesmCode</td>
+                                    <td>@ResolvePqmName(item)</td>
+                                    <td>@item.PqmQualType</td>
+                                    <td>@item.PqmCesmCode</td>
+                                    <td>@item.PqmCesmCode1</td>
+                                    <td>@item.PqmMinTimeTotal</td>
+                                    <td>@item.PqmWIL</td>
+                                    <td>@(string.IsNullOrWhiteSpace(item.PqmAccreditation) ? "N/A" : item.PqmAccreditation)</td>
+                                    <td>@item.PqmTotalSubsidy</td>
+                                    <td style="text-align:center"><span class="badge @(item.NeedsReview ? "badge--warning" : "badge--neutral")">@(item.NeedsReview ? "YES" : "NO")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C2_TypeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C2_TypeMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C3_MinTimeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C3_MinTimeMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C4_WILMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C4_WILMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C5_HeqfMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C5_HeqfMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C6_SubsidyMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C6_SubsidyMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="badge badge--fail">@item.ValidationResult</span></td>
+                                    <td style="color:#991b1b;font-size:0.78rem">@BuildReason(item)</td>
                                 </tr>
                             }
                         </tbody>
                     </table>
                 </div>
-                @if (failRows.Count > 20)
+                @if (failRows.Count > 10)
                 {
-                    <div style="color:#64748b;margin-top:8px">Showing first 20 of @failRows.Count.ToString("N0") exceptions. Download CSV for the full list.</div>
+                    <div style="color:#64748b;margin-top:8px">Showing first 10 exception rows in the browser. Download CSV for the full list.</div>
                 }
             }
             else
@@ -377,47 +468,97 @@
             {
                 <div class="filter-toolbar">
                     <div class="filter-toolbar__group">
-                        <label for="rule38ValidationFilter">Filter</label>
-                        <select id="rule38ValidationFilter">
+                        <label for="rule38ValidationResultFilter">Result</label>
+                        <select id="rule38ValidationResultFilter">
                             <option value="ALL">All</option>
                             <option value="PASS">Passed</option>
                             <option value="FAIL">Failed</option>
                         </select>
                     </div>
+                    <div class="filter-toolbar__group">
+                        <label for="rule38ValidationPopulationFilter">Population</label>
+                        <select id="rule38ValidationPopulationFilter">
+                            <option value="ALL">All</option>
+                            <option value="Undergraduate">Undergraduate</option>
+                            <option value="Postgraduate">Postgraduate</option>
+                        </select>
+                    </div>
                     <div class="filter-toolbar__meta">
-                        <span id="rule38FilterCount">@Model.Summary.ValidationRows.Take(20).Count()</span> visible row(s)
+                        <span id="rule38FilterCount">@Model.Summary.ValidationRows.Take(10).Count()</span> visible row(s)
                     </div>
                 </div>
                 <div style="overflow:auto">
-                    <table class="data-table" style="font-size:0.83rem">
+                    <table class="data-table rule11-table" style="font-size:0.83rem">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>QUAL Code</th>
-                                <th>QUAL Name</th>
-                                <th>PQM?</th>
-                                <th title="5.1.2">C2</th>
-                                <th title="5.1.3">C3</th>
-                                <th title="5.1.4">C4</th>
-                                <th title="5.1.5">C5</th>
-                                <th title="5.1.6">C6</th>
-                                <th>Result</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">#</th>
+                                <th colspan="9" style="background:#558B2F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.QualTable</th>
+                                <th colspan="2" style="background:#00838F;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.CesmTable</th>
+                                <th colspan="8" style="background:#6A1B9A;color:#fff;text-align:center;border-right:2px solid #fff">@Model.Summary.PqmTable</th>
+                                <th colspan="6" style="background:#374151;color:#fff;text-align:center;border-right:2px solid #fff">Rule 38 Controls</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">Result</th>
+                                <th rowspan="2" style="vertical-align:middle;text-align:center">Reason</th>
+                            </tr>
+                            <tr>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualIdCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualNameCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualApprovalCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualTypeCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeTotalCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualMinTimeWilCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualHeqfCol</th>
+                                <th style="background:#AED581;font-size:11px">@Model.Summary.QualTotalSubsidyCol</th>
+                                <th style="background:#AED581;font-size:11px;border-right:2px solid #558B2F">Population Type</th>
+                                <th style="background:#80DEEA;font-size:11px">@Model.Summary.CesmIdCol</th>
+                                <th style="background:#80DEEA;font-size:11px;border-right:2px solid #00838F">@Model.Summary.CesmCodeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmNameCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmQualTypeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCodeCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmCesmCode1Col</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmMinTimeTotalCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmWilCol</th>
+                                <th style="background:#CE93D8;font-size:10px">@Model.Summary.PqmAccreditationCol</th>
+                                <th style="background:#CE93D8;font-size:10px;border-right:2px solid #6A1B9A">@Model.Summary.PqmTotalSubsidyCol</th>
+                                <th style="background:#D1D5DB;font-size:11px">Review</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.2">C2</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.3">C3</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.4">C4</th>
+                                <th style="background:#D1D5DB;font-size:11px" title="5.1.5">C5</th>
+                                <th style="background:#D1D5DB;font-size:11px;border-right:2px solid #374151" title="5.1.6">C6</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var item in Model.Summary.ValidationRows.Take(20))
+                            @foreach (var item in Model.Summary.ValidationRows.Take(10))
                             {
-                                <tr data-filter-result="@item.ValidationResult">
-                                    <td>@item.ValidationNumber</td>
+                                <tr data-filter-result="@item.ValidationResult" data-filter-population="@item.PopulationType" style="background:@(item.NeedsReview ? "#fff8e1" : item.ValidationResult == "PASS" ? "#f3fff3" : "#fff3f3")" title="Population rule: @item.PopulationClassificationNote | Match: @item.MatchNote">
+                                    <td style="text-align:center">@item.ValidationNumber</td>
                                     <td><strong>@item.QualCode</strong></td>
                                     <td>@item.QualName</td>
-                                    <td><span class="badge @(item.HasPqmMatch ? "badge--pass" : "badge--fail")">@(item.HasPqmMatch ? "YES" : "NO")</span></td>
-                                    <td><span class="@(item.C2_TypeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C2_TypeMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C3_MinTimeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C3_MinTimeMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C4_WILMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C4_WILMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C5_HeqfMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C5_HeqfMatch ? "P" : "F")</span></td>
-                                    <td><span class="@(item.C6_SubsidyMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C6_SubsidyMatch ? "P" : "F")</span></td>
-                                    <td><span class="badge @(item.ValidationResult == "PASS" ? "badge--pass" : "badge--fail")">@item.ValidationResult</span></td>
+                                    <td>@item.ApprovalStatus</td>
+                                    <td>@item.QualType</td>
+                                    <td>@item.MinTimeTotal</td>
+                                    <td>@item.MinTimeWIL</td>
+                                    <td>@item.HeqfIndicator</td>
+                                    <td>@item.TotalSubsidy</td>
+                                    <td style="font-weight:700;color:@(item.PopulationType == "Postgraduate" ? "#1B5E20" : "#1565C0")">@item.PopulationType</td>
+                                    <td>@item.QualCode</td>
+                                    <td>@item.CesmCode</td>
+                                    <td>@ResolvePqmName(item)</td>
+                                    <td>@item.PqmQualType</td>
+                                    <td>@item.PqmCesmCode</td>
+                                    <td>@item.PqmCesmCode1</td>
+                                    <td>@item.PqmMinTimeTotal</td>
+                                    <td>@item.PqmWIL</td>
+                                    <td>@(string.IsNullOrWhiteSpace(item.PqmAccreditation) ? "N/A" : item.PqmAccreditation)</td>
+                                    <td>@item.PqmTotalSubsidy</td>
+                                    <td style="text-align:center"><span class="badge @(item.NeedsReview ? "badge--warning" : "badge--neutral")">@(item.NeedsReview ? "YES" : "NO")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C2_TypeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C2_TypeMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C3_MinTimeMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C3_MinTimeMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C4_WILMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C4_WILMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C5_HeqfMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C5_HeqfMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="@(item.C6_SubsidyMatch ? "ctrl-badge-p" : "ctrl-badge-f")">@(item.C6_SubsidyMatch ? "P" : "F")</span></td>
+                                    <td style="text-align:center"><span class="badge @(item.ValidationResult == "PASS" ? "badge--pass" : "badge--fail")">@item.ValidationResult</span></td>
+                                    <td style="font-size:0.78rem;color:@(item.NeedsReview ? "#92400e" : item.ValidationResult == "PASS" ? "#166534" : "#991b1b")">@BuildReason(item)</td>
                                 </tr>
                             }
                         </tbody>
@@ -452,11 +593,13 @@
         <div class="viz-grid" style="margin-top:20px">
             <div class="viz-card">
                 <h4 style="margin-top:0">Run Composition</h4>
-                <div style="color:#475569;line-height:1.8">
-                    <div><strong>Total QUAL:</strong> @Model.Summary.TotalQualRecords.ToString("N0")</div>
-                    <div><strong>Approved:</strong> @Model.Summary.ApprovedCount.ToString("N0")</div>
-                    <div><strong>PQM Match:</strong> @Model.Summary.PqmMatchCount.ToString("N0")</div>
-                    <div><strong>PQM No Match:</strong> @Model.Summary.PqmNoMatchCount.ToString("N0")</div>
+                    <div style="color:#475569;line-height:1.8">
+                        <div><strong>Total QUAL:</strong> @Model.Summary.TotalQualRecords.ToString("N0")</div>
+                        <div><strong>Approved:</strong> @Model.Summary.ApprovedCount.ToString("N0")</div>
+                        <div><strong>Undergraduate:</strong> @Model.Summary.UndergraduateCount.ToString("N0")</div>
+                        <div><strong>Postgraduate:</strong> @Model.Summary.PostgraduateCount.ToString("N0")</div>
+                        <div><strong>PQM Match:</strong> @Model.Summary.PqmMatchCount.ToString("N0")</div>
+                        <div><strong>PQM No Match:</strong> @Model.Summary.PqmNoMatchCount.ToString("N0")</div>
                     <div><strong>PASS:</strong> @Model.Summary.OverallPassCount.ToString("N0")</div>
                     <div><strong>FAIL:</strong> @Model.Summary.OverallFailCount.ToString("N0")</div>
                     <div><strong>Exception Rate:</strong> @Model.Summary.ExceptionRate.ToString("F2")%</div>
@@ -544,26 +687,31 @@
 
     tabs.forEach(tab => tab.addEventListener('click', () => setActiveTab(tab.getAttribute('data-review-tab'))));
 
-    const validationFilter = document.getElementById('rule38ValidationFilter');
+    const validationResultFilter = document.getElementById('rule38ValidationResultFilter');
+    const validationPopulationFilter = document.getElementById('rule38ValidationPopulationFilter');
     const validationRows = Array.from(document.querySelectorAll('tr[data-filter-result]'));
     const validationCount = document.getElementById('rule38FilterCount');
 
     function applyValidationFilter() {
-        if (!validationFilter || !validationCount) return;
-        const filterValue = validationFilter.value;
+        if (!validationCount) return;
+        const resultValue = validationResultFilter?.value || 'ALL';
+        const populationValue = validationPopulationFilter?.value || 'ALL';
         let visibleCount = 0;
         validationRows.forEach(row => {
             const result = (row.getAttribute('data-filter-result') || '').toUpperCase();
-            const visible = filterValue === 'ALL' || result === filterValue;
+            const population = row.getAttribute('data-filter-population') || 'Undergraduate';
+            const matchesResult = resultValue === 'ALL' || result === resultValue;
+            const matchesPopulation = populationValue === 'ALL' || population === populationValue;
+            const visible = matchesResult && matchesPopulation;
             row.style.display = visible ? '' : 'none';
             if (visible) visibleCount++;
         });
         validationCount.textContent = visibleCount.toLocaleString();
     }
 
-    if (validationFilter) {
-        validationFilter.addEventListener('change', applyValidationFilter);
-        applyValidationFilter();
-    }
+    validationResultFilter?.addEventListener('change', applyValidationFilter);
+    validationPopulationFilter?.addEventListener('change', applyValidationFilter);
+    applyValidationFilter();
 })();
 </script>
+

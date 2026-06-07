@@ -544,7 +544,7 @@ window.toggleAccordion = function(s) {
                     <div><div class="stat-label">PG Types Filter</div><div>${esc(summary.pgTypesText)}</div></div>
                     <div><div class="stat-label">Timestamp</div><div>${esc(summary.timestamp)}</div></div>
                 </div>
-                ${summary.isPreviewOnly ? `<div class="alert alert--warning">Browser preview limited to ${fmt(summary.previewLimit)} rows. Download for the full result set.</div>` : ''}
+                ${summary.isPreviewOnly ? `<div class="alert alert--warning">Browser preview is limited to the first ${fmt(summary.previewLimit)} exception rows and ${fmt(summary.previewLimit)} pass rows. Download for the full result set.</div>` : ''}
             </div>`;
     }
 

@@ -162,9 +162,9 @@
         <div class="tab-pane" data-tab-panel="downloads">
             <div class="alert alert--info" style="margin-bottom:16px">Excel includes all results and a summary sheet. CSV exports the full result set. SQL shows the matching query. Save the workspace before downloading.</div>
             <div class="action-bar" style="justify-content:flex-start;margin:0">
-                <button type="button" class="btn btn-info" id="downloadExcelBtn" onclick="if(state.currentRunId) window.open('/Rule59/DownloadSavedExcel?runId='+state.currentRunId,'_blank')">Excel</button>
-                <button type="button" class="btn btn-info" id="downloadCsvBtn" onclick="if(state.currentRunId) window.open('/Rule59/DownloadSavedCsv?runId='+state.currentRunId,'_blank')">CSV</button>
-                <button type="button" class="btn btn-secondary" id="downloadSqlBtn" onclick="if(state.currentRunId) window.open('/Rule59/DownloadSavedSql?runId='+state.currentRunId,'_blank')">SQL</button>
+                <button type="button" class="btn btn-info" id="downloadExcelBtn" disabled>Excel</button>
+                <button type="button" class="btn btn-info" id="downloadCsvBtn" disabled>CSV</button>
+                <button type="button" class="btn btn-secondary" id="downloadSqlBtn" disabled>SQL</button>
             </div>
         </div>
     </div>
@@ -211,6 +211,9 @@ window.toggleAccordion = function (section) {
         workspaceSignoffComment: document.getElementById('workspaceSignoffComment'),
         beginEditBtn: document.getElementById('beginEditBtn'), saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
         signoffBtn: document.getElementById('signoffBtn'), removeSignoffBtn: document.getElementById('removeSignoffBtn'),
+        downloadExcelBtn: document.getElementById('downloadExcelBtn'),
+        downloadCsvBtn: document.getElementById('downloadCsvBtn'),
+        downloadSqlBtn: document.getElementById('downloadSqlBtn'),
         statusBadge: document.getElementById('statusBadge')
     };
 
@@ -241,6 +244,23 @@ window.toggleAccordion = function (section) {
     }
     async function downloadBlob(url, payload, defaultName) {
         await window.downloadFileWithProgress({ url, method:'POST', headers:{'Content-Type':'application/json','RequestVerificationToken':token}, body:JSON.stringify(payload), defaultFileName:defaultName, label:'Downloading' });
+    }
+    function openSavedDownload(kind) {
+        if (!state.currentRunId) {
+            setWorkspaceState('Save or load a Rule 59 run before downloading results.','warning');
+            setActiveTab('downloads');
+            return;
+        }
+
+        const routes = {
+            excel: `${apiBase}/DownloadSavedExcel?runId=${state.currentRunId}`,
+            csv: `${apiBase}/DownloadSavedCsv?runId=${state.currentRunId}`,
+            sql: `${apiBase}/DownloadSavedSql?runId=${state.currentRunId}`
+        };
+
+        const url = routes[kind];
+        if (!url) return;
+        window.open(url, '_blank');
     }
 
     function populateSelect(sel, values, selected) {
@@ -299,7 +319,10 @@ window.toggleAccordion = function (section) {
             {target:els.signoffBtn,disabled:signoffLocked||!canSign,text:state.currentUserHasSignedOff?`Signed Off as ${role||currentSystemRole}`:'Save Signoff'},
             {target:els.removeSignoffBtn,show:state.currentUserHasSignedOff,display:'',disabled:!state.currentUserHasSignedOff},
             {target:els.workspaceSignoffComment,disabled:signoffLocked||!canSign},
-            {target:els.downloadAllBtn,disabled:!state.summary}
+            {target:els.downloadAllBtn,disabled:!state.summary},
+            {target:els.downloadExcelBtn,disabled:!state.currentRunId},
+            {target:els.downloadCsvBtn,disabled:!state.currentRunId},
+            {target:els.downloadSqlBtn,disabled:!state.currentRunId}
         ]);
         window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions','.action-bar'],signoffLocked,{allow:['#downloadAllBtn','#downloadExcelBtn','#downloadCsvBtn','#downloadSqlBtn','#removeSignoffBtn']});
     }
@@ -492,6 +515,9 @@ window.toggleAccordion = function (section) {
         });
     }
 
+    els.downloadExcelBtn?.addEventListener('click', () => openSavedDownload('excel'));
+    els.downloadCsvBtn?.addEventListener('click', () => openSavedDownload('csv'));
+    els.downloadSqlBtn?.addEventListener('click', () => openSavedDownload('sql'));
     els.signoffBtn?.addEventListener('click', () => signoffWorkspace().catch(err=>{hideSpinner();setWorkspaceState(err.message,'error');}));
     els.removeSignoffBtn?.addEventListener('click', () => removeWorkspaceSignoff().catch(err=>{hideSpinner();setWorkspaceState(err.message,'error');}));
     els.clientId?.addEventListener('change', () => loadWorkspace().catch(err=>setWorkspaceState(err.message,'error')));

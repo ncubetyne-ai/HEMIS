@@ -718,8 +718,13 @@ ELSE
         private static void ApplyBrowserPreview(Rule61ValidationSummary? s)
         {
             if (s == null) return;
-            s.IsPreviewOnly = false;
-            s.PreviewLimit  = s.TotalCount;
+            var failRows = s.FailRows ?? new List<Rule61ReviewRow>();
+            var passRows = s.PassRows ?? new List<Rule61ReviewRow>();
+
+            s.IsPreviewOnly = failRows.Count > BrowserPreviewRowLimit || passRows.Count > BrowserPreviewRowLimit;
+            s.FailRows      = failRows.Take(BrowserPreviewRowLimit).ToList();
+            s.PassRows      = passRows.Take(BrowserPreviewRowLimit).ToList();
+            s.PreviewLimit  = s.IsPreviewOnly ? BrowserPreviewRowLimit : 0;
         }
 
         public async Task<Rule61ValidationSummary?> GetStoredSummaryAsync(int runId)

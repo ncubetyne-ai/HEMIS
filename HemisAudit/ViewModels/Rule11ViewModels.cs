@@ -55,6 +55,7 @@ namespace HemisAudit.ViewModels
         public bool NameMatch { get; set; }
         public bool HeqfTypeMatch { get; set; }
         public bool CesmCodeMatch { get; set; }
+        public bool NeedsReview { get; set; }
         public string ValidationResult { get; set; } = "";
         public string? ExceptionReason { get; set; }
     }
@@ -78,6 +79,7 @@ namespace HemisAudit.ViewModels
         public bool NameMatch { get; set; }
         public bool HeqfTypeMatch { get; set; }
         public bool CesmCodeMatch { get; set; }
+        public bool NeedsReview { get; set; }
         public string ValidationResult { get; set; } = "";
         public string ExceptionReason { get; set; } = "";
     }
@@ -88,6 +90,7 @@ namespace HemisAudit.ViewModels
         public int TotalValidated { get; set; }
         public int PassCount { get; set; }
         public int FailCount { get; set; }
+        public int ReviewCount { get; set; }
         public decimal ExceptionRate { get; set; }
         public string Status { get; set; } = "";
         public string Timestamp { get; set; } = "";

@@ -192,19 +192,19 @@
 
     <div class="results-panel">
         <div class="results-tabs">
-            <button class="tab-btn active" type="button" data-tab="r60-analysis"  onclick="r60Tab('r60-analysis')">Analysis</button>
-            <button class="tab-btn"        type="button" data-tab="r60-flagged"   onclick="r60Tab('r60-flagged')">FLAGGED</button>
-            <button class="tab-btn"        type="button" data-tab="r60-clear"     onclick="r60Tab('r60-clear')">CLEAR</button>
+            <button class="tab-btn active" type="button" data-tab="r60-analysis"  onclick="r60Tab('r60-analysis')">Analysis Results</button>
+            <button class="tab-btn"        type="button" data-tab="r60-details"   onclick="r60Tab('r60-details')">Data Details</button>
+            <button class="tab-btn"        type="button" data-tab="r60-charts"    onclick="r60Tab('r60-charts')">Charts</button>
             <button class="tab-btn"        type="button" data-tab="r60-sql"       onclick="r60Tab('r60-sql')">SQL Code</button>
             <button class="tab-btn"        type="button" data-tab="r60-downloads" onclick="r60Tab('r60-downloads')">Downloads</button>
         </div>
         <div class="tab-pane active" data-tab-panel="r60-analysis">
             <div id="r60AnalysisPane"><div class="empty-state"><p>Run Rule 60 validation to see results here.</p></div></div>
         </div>
-        <div class="tab-pane" data-tab-panel="r60-flagged">
+        <div class="tab-pane" data-tab-panel="r60-details">
             <div id="r60FlaggedPane"><div class="empty-state"><p>No flagged rows yet — run validation first.</p></div></div>
         </div>
-        <div class="tab-pane" data-tab-panel="r60-clear">
+        <div class="tab-pane" data-tab-panel="r60-charts">
             <div id="r60ClearPane"><div class="empty-state"><p>No clear rows yet — run validation first.</p></div></div>
         </div>
         <div class="tab-pane" data-tab-panel="r60-sql">
@@ -243,7 +243,7 @@ window.r60Tab = function(tab) {
 };
 
 (function () {
-    var API = '/Rule41';
+    var API = '/Rule60';
     var ROLE = '@currentSystemRole';
     var IS_RESULTS_ONLY = @(isResultsOnlyRole.ToString().ToLowerInvariant());
     var TOKEN = (document.querySelector('#r60AntiForgery input[name="__RequestVerificationToken"]') || {}).value || '';
@@ -430,7 +430,7 @@ window.r60Tab = function(tab) {
         }).catch(function(e) { unspin(); alert(e.message); });
     };
 
-    window.r60DlAll = function() { if (st.runId) window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank'); };
+    window.r60DlAll = function() { if (st.runId) window.open(API + '/DownloadSavedExcel?runId=' + st.runId, '_blank'); };
 
     /* ── Workspace ── */
     window.r60SaveWorkspace = function() {
@@ -555,12 +555,13 @@ window.r60Tab = function(tab) {
         if (summary && !fromWs) st.runId = summary.savedRunId || st.runId;
         setStatusBadge(summary ? summary.status : '');
         renderAnalysis(summary);
-        renderReconc(summary ? summary.reconc : null);
+        renderDetails(summary, summary ? summary.reconc : null);
+        renderCharts(summary, summary ? summary.reconc : null);
         if (summary && st.runId) {
-            var dlE = g('r60DlExcel');  if (dlE) dlE.onclick = function() { window.open(API + '/DownloadExcel?runId=' + st.runId, '_blank'); };
-            var dlC = g('r60DlCsv');    if (dlC) dlC.onclick = function() { window.open(API + '/DownloadCsv?runId=' + st.runId, '_blank'); };
-            var dlX = g('r60DlExcCsv');if (dlX) dlX.onclick = function() { window.open(API + '/DownloadExceptionsCsv?runId=' + st.runId, '_blank'); };
-            var dlS = g('r60DlSql');    if (dlS) dlS.onclick = function() { window.open(API + '/DownloadSql?runId=' + st.runId, '_blank'); };
+            var dlE = g('r60DlExcel');  if (dlE) dlE.onclick = function() { window.open(API + '/DownloadSavedExcel?runId=' + st.runId, '_blank'); };
+            var dlC = g('r60DlCsv');    if (dlC) dlC.onclick = function() { window.open(API + '/DownloadSavedCsv?runId=' + st.runId, '_blank'); };
+            var dlX = g('r60DlExcCsv');if (dlX) dlX.onclick = function() { window.open(API + '/DownloadSavedExceptionsCsv?runId=' + st.runId, '_blank'); };
+            var dlS = g('r60DlSql');    if (dlS) dlS.onclick = function() { window.open(API + '/DownloadSavedSql?runId=' + st.runId, '_blank'); };
         }
         updateButtons();
     }
@@ -583,12 +584,75 @@ window.r60Tab = function(tab) {
             '<div><div class="stat-label">CRSE Table</div><div>' + esc(s.studTable || '') + '</div></div>' +
             '<div><div class="stat-label">H16CRSE Table</div><div>' + esc(s.auditTable || '') + '</div></div>' +
             '<div><div class="stat-label">Timestamp</div><div>' + esc(s.timestamp || '') + '</div></div>' +
+            '<div style="grid-column:1 / -1"><div class="stat-label">Comparison Rule</div><div>Numeric-like values are treated as equal, so <code>05</code> matches <code>5</code> and <code>01</code> matches <code>1</code>.</div></div>' +
             '</div></div>';
     }
 
     function statCard(label, value, mod) {
         var cls = mod === 'pass' ? ' stat-card--pass' : mod === 'fail' ? ' stat-card--fail' : '';
         return '<div class="stat-card' + cls + '"><div class="stat-card__label">' + label + '</div><div class="stat-card__value">' + value + '</div></div>';
+    }
+
+    function renderDetails(summary, reconc) {
+        if (!reconc) {
+            setHtml('r60FlaggedPane', '<div class="empty-state"><p>Run validation first.</p></div>');
+            return;
+        }
+        var pairs   = reconc.pairs || [];
+        var excRows = reconc.exceptionRows || [];
+        var agrRows = reconc.rows || [];
+
+        setHtml('r60FlaggedPane',
+            '<div class="card" style="padding:12px;margin-bottom:16px">' +
+            '<div class="form-grid">' +
+            '<div><div class="stat-label">Exception Rows</div><div>' + fmt((reconc.disagreeCount || 0) + (reconc.missingCount || 0)) + '</div></div>' +
+            '<div><div class="stat-label">Agree Rows</div><div>' + fmt(reconc.agreeCount || 0) + '</div></div>' +
+            '<div><div class="stat-label">Browser Preview</div><div>Showing ' + fmt(excRows.length) + ' exception row(s) and ' + fmt(agrRows.length) + ' agree row(s) on screen.</div></div>' +
+            '</div>' +
+            '</div>' +
+            '<div class="card" style="padding:12px;margin-bottom:12px;border-left:4px solid #C0392B">' +
+            '<strong>Exception Rows</strong>: ' + fmt(reconc.disagreeCount || 0) + ' DISAGREE + ' + fmt(reconc.missingCount || 0) + ' MISSING rows.' +
+            '</div>' + buildTable(excRows, pairs, 'No exceptions â€” all subjects agree.') +
+            '<div class="card" style="padding:12px;margin:20px 0 12px;border-left:4px solid #1E8449">' +
+            '<strong>Agree Sample</strong>: ' + fmt(reconc.agreeCount || 0) + ' subject row(s) agree' +
+            (agrRows.length < (reconc.agreeCount || 0) ? ' (sample of ' + fmt(agrRows.length) + ' shown)' : '') + '.' +
+            '</div>' + buildTable(agrRows, pairs, 'No agree rows in this run.'));
+    }
+
+    function renderCharts(summary, reconc) {
+        if (!reconc) {
+            setHtml('r60ClearPane', '<div class="empty-state"><p>Run validation first.</p></div>');
+            return;
+        }
+
+        setHtml('r60ClearPane',
+            '<div class="stats-grid" style="margin-bottom:16px">' +
+                statCard('Total Tested', fmt(summary ? (summary.totalCount || 0) : 0), '') +
+                statCard('Exception Rate', Number(summary ? (summary.exceptionRate || 0) : 0).toFixed(2) + '%', summary && summary.exceptionRate > 0 ? 'fail' : 'pass') +
+                statCard('Overall Status', '<span class="badge ' + ((summary && String(summary.status || '').toUpperCase() === 'PASS') ? 'badge--pass' : 'badge--fail') + '">' + esc(summary ? (summary.status || '') : '') + '</span>', '') +
+            '</div>' +
+            buildChartCards(summary));
+    }
+
+    function buildChartCards(summary) {
+        if (!summary) return '<div class="empty-state"><p>No chart data yet.</p></div>';
+        var total = Number(summary.totalCount || 0);
+        var safeTotal = total > 0 ? total : 1;
+        var metrics = [
+            { label: 'Agree', count: Number(summary.agreeCount || 0), color: '#1E8449', bg: '#E8F5E9' },
+            { label: 'Disagree', count: Number(summary.disagreeCount || 0), color: '#C0392B', bg: '#FDECEC' },
+            { label: 'Missing', count: Number(summary.missingCount || 0), color: '#E67E22', bg: '#FFF4E5' }
+        ];
+
+        return '<div class="stats-grid">' + metrics.map(function(metric) {
+            var percent = ((metric.count / safeTotal) * 100).toFixed(2);
+            return '<div class="card" style="padding:16px">' +
+                '<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:10px"><strong>' + metric.label + '</strong><span>' + fmt(metric.count) + ' (' + percent + '%)</span></div>' +
+                '<div style="height:12px;border-radius:999px;background:' + metric.bg + ';overflow:hidden">' +
+                '<div style="height:100%;width:' + percent + '%;background:' + metric.color + ';border-radius:999px"></div>' +
+                '</div>' +
+            '</div>';
+        }).join('') + '</div>';
     }
 
     function renderReconc(reconc) {

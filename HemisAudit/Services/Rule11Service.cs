@@ -31,6 +31,45 @@ namespace HemisAudit.Services
         private static string NormValue(string? v) =>
             v == null ? "" : v.Trim().ToUpperInvariant();
 
+        private static string DigitsOnly(string? v) =>
+            Regex.Replace(NormValue(v), @"\D", "");
+
+        private static string TrimLeadingZeros(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            var trimmed = value.TrimStart('0');
+            return trimmed.Length == 0 ? "0" : trimmed;
+        }
+
+        private static bool HasSameLeadingDigits(string left, string right, int digits) =>
+            left.Length >= digits &&
+            right.Length >= digits &&
+            string.Equals(left[..digits], right[..digits], StringComparison.Ordinal);
+
+        private static string? GetCesmReviewMatchReason(string? qualCode, string? pqmCode)
+        {
+            var rawQualCode = DigitsOnly(qualCode);
+            var rawPqmCode = DigitsOnly(pqmCode);
+            if (rawQualCode.Length == 0 || rawPqmCode.Length == 0) return null;
+
+            if (HasSameLeadingDigits(rawQualCode, rawPqmCode, 4))
+                return "first 4 digits matched";
+
+            var trimmedQualCode = TrimLeadingZeros(rawQualCode);
+            var trimmedPqmCode = TrimLeadingZeros(rawPqmCode);
+
+            if (HasSameLeadingDigits(trimmedQualCode, trimmedPqmCode, 4))
+                return "first 4 digits matched after removing leading zeros";
+
+            if (HasSameLeadingDigits(rawQualCode, rawPqmCode, 3))
+                return "first 3 digits matched";
+
+            if (HasSameLeadingDigits(trimmedQualCode, trimmedPqmCode, 3))
+                return "first 3 digits matched after removing leading zeros";
+
+            return null;
+        }
+
         private static string ClassifyPopulationType(string? qualHeqfType, ISet<string> postgraduateTypeCodes) =>
             postgraduateTypeCodes.Contains(NormValue(qualHeqfType)) ? "Postgraduate" : "Undergraduate";
 
@@ -82,6 +121,7 @@ namespace HemisAudit.Services
                     NameMatch        = false,
                     HeqfTypeMatch    = false,
                     CesmCodeMatch    = false,
+                    NeedsReview      = false,
                     ValidationResult = "FAIL",
                     ExceptionReason  = "Qualification name not found in PQM (Authorised_Qualification_Name)"
                 };
@@ -115,8 +155,9 @@ namespace HemisAudit.Services
                     NameMatch        = true,
                     HeqfTypeMatch    = true,
                     CesmCodeMatch    = true,
+                    NeedsReview      = false,
                     ValidationResult = "PASS",
-                    ExceptionReason  = null
+                    ExceptionReason  = "All three criteria matched on the same PQM row: qualification name (_003), HEQF type (_005), and CESM code (_006)"
                 };
             }
 
@@ -127,6 +168,37 @@ namespace HemisAudit.Services
 
             if (heqfMatch.Count > 0)
             {
+                var reviewMatch = heqfMatch
+                    .Select(p => new { Row = p, Reason = GetCesmReviewMatchReason(q.CesmCode, p.Code) })
+                    .FirstOrDefault(match => match.Reason != null);
+
+                if (reviewMatch != null)
+                {
+                    return new Rule11ValidationRow
+                    {
+                        ValidationNumber = rowNo,
+                        QualId           = q.QualId,
+                        QualName         = q.QualName,
+                        QualApproval     = q.QualApproval,
+                        QualHeqfType     = q.QualHeqfType,
+                        Qual053          = q.Qual053,
+                        Qual054          = q.Qual054,
+                        Qual084          = q.Qual084,
+                        Qual090          = q.Qual090,
+                        PopulationType   = populationType,
+                        CesmCode         = q.CesmCode,
+                        PqmName          = reviewMatch.Row.Name?.Trim(),
+                        PqmHeqfType      = reviewMatch.Row.HeqfType?.Trim(),
+                        PqmCode          = reviewMatch.Row.Code?.Trim(),
+                        NameMatch        = true,
+                        HeqfTypeMatch    = true,
+                        CesmCodeMatch    = true,
+                        NeedsReview      = true,
+                        ValidationResult = "PASS",
+                        ExceptionReason  = $"Pass - review required: Name and HEQF matched, and the CESM leading digits also matched ({reviewMatch.Reason}) even though the full code differs. CESM._006: '{q.CesmCode}' | PQM CESM_Code: '{reviewMatch.Row.Code?.Trim()}'"
+                    };
+                }
+
                 var best = heqfMatch[0];
                 var pqmCodeValues = string.Join(" | ",
                     heqfMatch.Take(3)
@@ -152,6 +224,7 @@ namespace HemisAudit.Services
                     NameMatch        = true,
                     HeqfTypeMatch    = true,
                     CesmCodeMatch    = false,
+                    NeedsReview      = false,
                     ValidationResult = "FAIL",
                     ExceptionReason  = $"Name and HEQF matched but CESM code mismatch — CESM._006: '{q.CesmCode}' | PQM CESM_Code: '{pqmCodeValues}'"
                 };
@@ -184,6 +257,7 @@ namespace HemisAudit.Services
                 NameMatch        = true,
                 HeqfTypeMatch    = false,
                 CesmCodeMatch    = false,
+                NeedsReview      = false,
                 ValidationResult = "FAIL",
                 ExceptionReason  = $"Name matched but HEQF_Qual_Type mismatch — QUAL._005: '{q.QualHeqfType}' | PQM HEQF_Qual_Type: '{pqmHeqfValues}'"
             };
@@ -468,6 +542,7 @@ WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = @QualApprovalValue"
                 var total     = validationRows.Count;
                 var passCount = validationRows.Count(row => row.ValidationResult == "PASS");
                 var failCount = validationRows.Count(row => row.ValidationResult == "FAIL");
+                var reviewCount = validationRows.Count(row => row.NeedsReview);
                 var rate      = total > 0 ? Math.Round((decimal)failCount / total * 100, 2) : 0;
 
                 var exceptions = validationRows
@@ -491,6 +566,7 @@ WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = @QualApprovalValue"
                         NameMatch        = row.NameMatch,
                         HeqfTypeMatch    = row.HeqfTypeMatch,
                         CesmCodeMatch    = row.CesmCodeMatch,
+                        NeedsReview      = row.NeedsReview,
                         ValidationResult = row.ValidationResult,
                         ExceptionReason  = row.ExceptionReason ?? ""
                     })
@@ -502,6 +578,7 @@ WHERE UPPER(LTRIM(RTRIM(CAST(q.[{qa}] AS NVARCHAR(255))))) = @QualApprovalValue"
                     TotalValidated   = total,
                     PassCount        = passCount,
                     FailCount        = failCount,
+                    ReviewCount      = reviewCount,
                     ExceptionRate    = rate,
                     Status           = failCount == 0 ? "PASS" : "FAIL",
                     Timestamp        = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
@@ -936,11 +1013,33 @@ END";
                 var typeCodes = ParseQualTypeCodes(request.QualTypeCodesText);
                 var typeCodeSql = string.Join(", ", typeCodes.Select(code => $"'{EscapeSqlString(code)}'"));
                 var populationTypeSql = $"CASE WHEN UPPER(LTRIM(RTRIM(CAST(q.[{qht}] AS NVARCHAR(255))))) IN ({typeCodeSql}) THEN 'Postgraduate' ELSE 'Undergraduate' END";
+            string sqlNorm(string expr, int length) =>
+                $"UPPER(LTRIM(RTRIM(CAST({expr} AS NVARCHAR({length})))))";
+            string sqlTrimLeadingZeros(string expr) =>
+                $"CASE WHEN {expr} = '' THEN '' WHEN PATINDEX('%[^0]%', {expr}) = 0 THEN '0' ELSE SUBSTRING({expr}, PATINDEX('%[^0]%', {expr}), LEN({expr})) END";
+            string sqlPrefixMatch(string leftExpr, string rightExpr, int digits) =>
+                $"(LEN({leftExpr}) >= {digits} AND LEN({rightExpr}) >= {digits} AND LEFT({leftExpr}, {digits}) = LEFT({rightExpr}, {digits}))";
+            var qualNameSql = sqlNorm("b.Qual_Name", 500);
+            var pqmNameSql = sqlNorm($"p.[{pn}]", 500);
+            var qualHeqfSql = sqlNorm("b.Qual_HEQF_Type", 100);
+            var pqmHeqfSql = sqlNorm($"p.[{pht}]", 100);
+            var cesmSql = sqlNorm("b.CESM_Code", 100);
+            var pqmCodeSql = sqlNorm($"p.[{pc}]", 100);
+            var cesmTrimSql = sqlTrimLeadingZeros(cesmSql);
+            var pqmTrimSql = sqlTrimLeadingZeros(pqmCodeSql);
+            var exactMatchSql = $"{cesmSql} = {pqmCodeSql}";
+            var reviewMatchSql = string.Join(" OR ", new[]
+            {
+                sqlPrefixMatch(cesmSql, pqmCodeSql, 4),
+                sqlPrefixMatch(cesmTrimSql, pqmTrimSql, 4),
+                sqlPrefixMatch(cesmSql, pqmCodeSql, 3),
+                sqlPrefixMatch(cesmTrimSql, pqmTrimSql, 3)
+            });
 
             return $@"-- ============================================================================
 -- HEMIS 2026 - RULE 11: QUAL vs CESM vs PQM VALIDATION
 -- Generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}
--- EL §5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
+-- EL section 5.1.2: Inspect E005 Qualification Type and agree correct type has been allocated per PQM.
 -- ============================================================================
 -- TABLES
 --   {qt}  : [{qi}] (qual code / join key), [{qn}] (qual name), [{qa}] (approval status), [{qht}] (HEQF type)
@@ -950,12 +1049,12 @@ END";
 --   {qt}.[{qa}] = '{approvalValue}'
 --   {qt}.[{qht}] in the configured postgraduate list are labelled Postgraduate; all other approved rows are labelled Undergraduate
 --
--- JOIN:   {qt}.[{qi}] = {ct}.[{ci}]  (LEFT JOIN — QUAL rows without CESM row are still included)
+-- JOIN:   {qt}.[{qi}] = {ct}.[{ci}]  (LEFT JOIN so QUAL rows without a CESM row are still included)
 --
 -- MATCHING RULES (all three on the SAME PQM row):
---   ① UPPER(TRIM([{qn}])) = UPPER(TRIM([{pn}]))   -- qualification name match (case-insensitive)
---   ② UPPER(TRIM([{qht}])) = UPPER(TRIM([{pht}]))  -- HEQF type match
---   ③ UPPER(TRIM([{cc}])) = UPPER(TRIM([{pc}]))    -- CESM code match (_006 = CESM_Code)
+--   1. UPPER(TRIM([{qn}])) = UPPER(TRIM([{pn}]))    -- qualification name match
+--   2. UPPER(TRIM([{qht}])) = UPPER(TRIM([{pht}]))  -- HEQF type match
+--   3. Exact CESM match, or a review pass when the leading 4 or 3 digits match
 -- ============================================================================
 
 IF OBJECT_ID('tempdb..#R11_Base') IS NOT NULL DROP TABLE #R11_Base;
@@ -987,33 +1086,40 @@ SELECT
     -- PQM Authorised_Qualification_Name (first name-matched row)
     (SELECT TOP 1 CAST(p.[{pn}] AS NVARCHAR(500))
      FROM [{pt}] p
-     WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
-           = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+     WHERE {qualNameSql} = {pqmNameSql}
     )                                              AS PQM_Qual_Name,
 
     -- PQM HEQF_Qual_Type (from first name-matched row)
     (SELECT TOP 1 CAST(p.[{pht}] AS NVARCHAR(100))
      FROM [{pt}] p
-     WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
-           = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+     WHERE {qualNameSql} = {pqmNameSql}
     )                                              AS PQM_HEQF_Type,
 
     -- Qual name match flag
     CASE WHEN EXISTS (
         SELECT 1 FROM [{pt}] p
-        WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name AS NVARCHAR(500)))))
-              = UPPER(LTRIM(RTRIM(CAST(p.[{pn}] AS NVARCHAR(500)))))
+        WHERE {qualNameSql} = {pqmNameSql}
     ) THEN 'YES' ELSE 'NO' END                     AS Name_Match,
+
+    CASE WHEN EXISTS (
+        SELECT 1 FROM [{pt}] p
+        WHERE {qualNameSql} = {pqmNameSql}
+          AND {qualHeqfSql} = {pqmHeqfSql}
+          AND {exactMatchSql}
+    ) THEN '' WHEN EXISTS (
+        SELECT 1 FROM [{pt}] p
+        WHERE {qualNameSql} = {pqmNameSql}
+          AND {qualHeqfSql} = {pqmHeqfSql}
+          AND ({reviewMatchSql})
+    ) THEN 'PASS - Review required: CESM leading digits matched but the full code differs.'
+      ELSE '' END                                  AS Review_Note,
 
     -- Combined match flag (ALL THREE on same row)
     CASE WHEN EXISTS (
         SELECT 1 FROM [{pt}] p
-        WHERE UPPER(LTRIM(RTRIM(CAST(b.Qual_Name    AS NVARCHAR(500)))))
-              = UPPER(LTRIM(RTRIM(CAST(p.[{pn}]      AS NVARCHAR(500)))))
-          AND UPPER(LTRIM(RTRIM(CAST(b.Qual_HEQF_Type AS NVARCHAR(100)))))
-              = UPPER(LTRIM(RTRIM(CAST(p.[{pht}]      AS NVARCHAR(100)))))
-          AND UPPER(LTRIM(RTRIM(CAST(b.CESM_Code     AS NVARCHAR(100)))))
-              = UPPER(LTRIM(RTRIM(CAST(p.[{pc}]       AS NVARCHAR(100)))))
+        WHERE {qualNameSql} = {pqmNameSql}
+          AND {qualHeqfSql} = {pqmHeqfSql}
+          AND ({exactMatchSql} OR ({reviewMatchSql}))
     ) THEN 'PASS' ELSE 'FAIL' END                  AS Validation_Result
 
 INTO #R11_Val
@@ -1024,6 +1130,7 @@ SELECT
     COUNT(*)                                                             AS Total,
     SUM(CASE WHEN Validation_Result='PASS' THEN 1 ELSE 0 END)           AS Pass_Count,
     SUM(CASE WHEN Validation_Result='FAIL' THEN 1 ELSE 0 END)           AS Fail_Count,
+    SUM(CASE WHEN Review_Note <> '' THEN 1 ELSE 0 END)                  AS Review_Pass_Count,
     CAST(SUM(CASE WHEN Validation_Result='FAIL' THEN 1 ELSE 0 END)
          * 100.0 / NULLIF(COUNT(*),0) AS DECIMAL(5,2))                  AS Exception_Rate_Pct
 FROM #R11_Val;
@@ -1031,7 +1138,7 @@ FROM #R11_Val;
 -- Step 4: Full result
 SELECT Validation_Number, Qual_ID, Qual_Name, Qual_Approval, Qual_HEQF_Type,
        Population_Type, CESM_Code, PQM_Qual_Name, PQM_HEQF_Type,
-       Name_Match, Validation_Result
+       Name_Match, Review_Note, Validation_Result
 FROM #R11_Val ORDER BY Validation_Number;
 
 -- Step 5: Exceptions only
@@ -1096,7 +1203,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             hashCmd.Parameters.AddWithValue("@RunID", runId);
             hashCmd.Parameters.AddWithValue("@RecordHash", ComputeHash(
                 $"ValidationRun|{runId}|{request.ClientId}|{systemUserId}|{summary.Status}|" +
-                $"{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ExceptionRate}|" +
+                $"{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ReviewCount}|{summary.ExceptionRate}|" +
                 $"{summary.Timestamp}|{request.QualApprovalFilterValue}|{request.QualTypeCodesText}|{previousHash}"));
             await hashCmd.ExecuteNonQueryAsync();
             return runId;

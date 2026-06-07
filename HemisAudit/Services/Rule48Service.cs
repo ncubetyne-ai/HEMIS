@@ -12,7 +12,7 @@ namespace HemisAudit.Services
     {
         private const int ExceptionRowSaveLimit  = 5000;
         private const int AgreeSampleLimit       = 100;
-        private const int BrowserPreviewRowLimit = 50;
+        private const int BrowserPreviewRowLimit = 10;
 
         private static readonly List<Rule41ColumnPair> DefaultPairs = new()
         {
@@ -202,10 +202,8 @@ namespace HemisAudit.Services
         private static void TrimReconcRows(Rule41ReconciliationSummary? reconc)
         {
             if (reconc == null) return;
-            var excTake   = Math.Min(reconc.ExceptionRows.Count, BrowserPreviewRowLimit);
-            var agreeTake = Math.Min(reconc.Rows.Count, Math.Max(0, BrowserPreviewRowLimit - excTake));
-            reconc.ExceptionRows = reconc.ExceptionRows.Take(excTake).ToList();
-            reconc.Rows          = reconc.Rows.Take(agreeTake).ToList();
+            reconc.ExceptionRows = reconc.ExceptionRows.Take(BrowserPreviewRowLimit).ToList();
+            reconc.Rows          = reconc.Rows.Take(BrowserPreviewRowLimit).ToList();
         }
 
         private async Task<Rule41ValidationSummary> AnalyseAsync(Rule41ValidationRequest req)
