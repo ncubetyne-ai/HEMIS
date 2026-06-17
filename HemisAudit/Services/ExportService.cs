@@ -81,6 +81,8 @@ namespace HemisAudit.Services
         byte[] ExportRule52Csv(Rule52ValidationSummary summary);
         byte[] ExportRule53Excel(Rule53ValidationSummary summary);
         byte[] ExportRule53Csv(Rule53ValidationSummary summary);
+        byte[] ExportRule66Excel(Rule66ValidationSummary summary);
+        byte[] ExportRule66Csv(Rule66ValidationSummary summary);
         byte[] ExportSql(string sql);
     }
 
@@ -5953,6 +5955,95 @@ namespace HemisAudit.Services
                     CsvEscape(row.ValidationNumber.ToString()),
                     CsvEscape(v.TryGetValue("VALPAC_SUBJ", out var a) ? a : ""),
                     CsvEscape(v.TryGetValue("PROD_SUBJ",   out var b) ? b : ""),
+                    CsvEscape(row.ValidationResult)
+                }));
+            }
+            return System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        // ─── Rule 66: NSFAS Students in CREG ──────────────────────────────────
+
+        public byte[] ExportRule66Excel(Rule66ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+            var fundCol = summary.FundingSourceCol ?? "_019";
+            var wsResults = wb.Worksheets.Add("Validation Results");
+            StyleHeaderRow(wsResults, 1, $"RULE 66: NSFAS Students [{fundCol}] in CREG [{summary.CregStudentNoCol ?? "_007"}]", 4);
+            var headers = new[] { "Validation #", $"STUD [{summary.StudStudentNoCol ?? "_007"}] Student No", $"Funding Source [{fundCol}]", $"CREG [{summary.CregStudentNoCol ?? "_007"}]", "Result" };
+            for (int i = 0; i < headers.Length; i++)
+            {
+                var cell = wsResults.Cell(2, i + 1);
+                cell.Value = headers[i]; cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            int rowIndex = 3;
+            foreach (var row in summary.ReviewRows)
+            {
+                var v = row.DisplayValues;
+                wsResults.Cell(rowIndex, 1).Value = row.ValidationNumber;
+                wsResults.Cell(rowIndex, 2).Value = v.TryGetValue("STUD_NO",       out var sn)  ? sn  ?? "" : "";
+                wsResults.Cell(rowIndex, 3).Value = v.TryGetValue("FUNDING_SOURCE", out var fs)  ? fs  ?? "" : "";
+                wsResults.Cell(rowIndex, 4).Value = v.TryGetValue("CREG_STUD_NO",  out var cn)  ? cn  ?? "" : "";
+                wsResults.Cell(rowIndex, 5).Value = row.ValidationResult;
+                wsResults.Range(rowIndex, 1, rowIndex, 5).Style.Fill.BackgroundColor =
+                    string.Equals(row.ValidationResult, "FAIL", StringComparison.OrdinalIgnoreCase) ? XLColor.FromHtml("#FFF3F3") : XLColor.FromHtml("#F3FFF3");
+                rowIndex++;
+            }
+            for (int c = 1; c <= 5; c++) wsResults.Column(c).AdjustToContents();
+
+            var wsSummary = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsSummary, 1, "HEMIS RULE 66: NSFAS STUDENTS IN CREG", 2);
+            var summaryData = new[]
+            {
+                ("Database", summary.Database),
+                ("STUD Table", summary.StudTable),
+                ("CREG Table", summary.CregTable),
+                ("Funding Source Column", fundCol),
+                ("Funding Source Filter", string.IsNullOrWhiteSpace(summary.FundingSourceValues) ? "ALL — no filter applied" : summary.FundingSourceValues),
+                ("Validation Date", summary.Timestamp), ("", ""),
+                ("VALIDATION RESULTS", ""),
+                ("STUD Total Records", summary.StudRecordCount.ToString("N0")),
+                ("NSFAS Students (funding filter)", summary.StudNsfasCount.ToString("N0")),
+                ("CREG Total Records", summary.CregRecordCount.ToString("N0")),
+                ("Found in CREG (PASS)", summary.PassCount.ToString("N0")),
+                ("Missing from CREG (FAIL)", summary.FailCount.ToString("N0")),
+                ("Exception Rate", $"{summary.ExceptionRate:F2}%"),
+                ("Status", summary.Status)
+            };
+            int sRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "VALIDATION RESULTS")
+                { var hc = wsSummary.Cell(sRow, 1); hc.Value = label; hc.Style.Font.Bold = true; hc.Style.Fill.BackgroundColor = XLColor.FromHtml("#8B0000"); hc.Style.Font.FontColor = XLColor.White; wsSummary.Range(sRow, 1, sRow, 2).Merge(); }
+                else if (label != "")
+                {
+                    wsSummary.Cell(sRow, 1).Value = label; wsSummary.Cell(sRow, 1).Style.Font.Bold = true; wsSummary.Cell(sRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsSummary.Cell(sRow, 2).Value = value;
+                    if (label == "Status") { wsSummary.Cell(sRow, 2).Style.Fill.BackgroundColor = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2"); wsSummary.Cell(sRow, 2).Style.Font.Bold = true; }
+                }
+                sRow++;
+            }
+            wsSummary.Column(1).Width = 40; wsSummary.Column(2).Width = 70;
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportRule66Csv(Rule66ValidationSummary summary)
+        {
+            var fundCol = summary.FundingSourceCol ?? "_019";
+            var sb = new StringBuilder();
+            sb.AppendLine($"Validation_Number,STUD_NO,Funding_Source_{fundCol},CREG_STUD_NO,Validation_Result");
+            foreach (var row in summary.ReviewRows)
+            {
+                var v = row.DisplayValues;
+                sb.AppendLine(string.Join(",", new[]
+                {
+                    CsvEscape(row.ValidationNumber.ToString()),
+                    CsvEscape(v.TryGetValue("STUD_NO",        out var sn) ? sn : ""),
+                    CsvEscape(v.TryGetValue("FUNDING_SOURCE",  out var fs) ? fs : ""),
+                    CsvEscape(v.TryGetValue("CREG_STUD_NO",   out var cn) ? cn : ""),
                     CsvEscape(row.ValidationResult)
                 }));
             }

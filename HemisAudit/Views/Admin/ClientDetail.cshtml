@@ -225,7 +225,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64 and 65</span>
+            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65 and 66</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -675,6 +675,14 @@
                             <p class="module-card__text">Checks the cancellation list for rows where <code>CANCEL</code> equals the row <code>CENSUS</code> date, and where any <code>CANCEL</code> date also matches <code>CURRENT_CENSUS</code> in <code>CENSUS_LIST_CLIENT</code>.</p>
                             <div class="module-card__actions">
                                 <a href="/Rule65?clientId=@Model.Id" class="btn btn-success">Open Rule 65</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 66</div>
+                            <h4 class="module-card__title">NSFAS Students in CREG</h4>
+                            <p class="module-card__text">Checks that every NSFAS student in <code>STUD</code> (where <code>_019</code> matches the funding source filter, e.g. <code>NS</code>) also has a course registration record in <code>CREG</code> on <code>_007</code>. PASS when found; FAIL when missing.</p>
+                            <div class="module-card__actions">
+                                <a href="/Rule66?clientId=@Model.Id" class="btn btn-success">Open Rule 66</a>
                             </div>
                         </article>
                     </div>
