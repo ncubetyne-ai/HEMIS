@@ -492,23 +492,47 @@ SELECT
             var cregCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cregTable}];");
             var studCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{studTable}];");
 
-            await using var countCmd = conn.CreateConfiguredCommand();
-            countCmd.CommandText = BuildPopulationCountSql(cregTable, studTable, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values);
-            await using var countReader = await countCmd.ExecuteReaderAsync();
+            // Single-batch: materialise temp tables once, then return counts + preview rows
+            await using var batchCmd = conn.CreateConfiguredCommand();
+            batchCmd.CommandText = BuildSingleBatchSql(cregTable, studTable, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values, includeAllReviewRows ? null : BrowserPreviewRowLimit);
+            await using var batchReader = await batchCmd.ExecuteReaderAsync();
 
+            // Result set 1: counts
             int totalChecked = 0, passCount = 0, notInStudCount = 0, invalidE051Count = 0;
-            if (await countReader.ReadAsync())
+            if (await batchReader.ReadAsync())
             {
-                totalChecked    = GetInt(countReader, 0);
-                passCount       = GetInt(countReader, 1);
-                notInStudCount  = GetInt(countReader, 2);
-                invalidE051Count = GetInt(countReader, 3);
+                totalChecked     = GetInt(batchReader, 0);
+                passCount        = GetInt(batchReader, 1);
+                notInStudCount   = GetInt(batchReader, 2);
+                invalidE051Count = GetInt(batchReader, 3);
             }
-            await countReader.CloseAsync();
 
-            var failCount    = notInStudCount + invalidE051Count;
-            var reviewRows   = await LoadRowsAsync(conn, cregTable, studTable, includeAllReviewRows ? null : BrowserPreviewRowLimit, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values);
-            reviewRows       = NormalizeRows(reviewRows);
+            // Result set 2: preview/full rows
+            var reviewRows = new List<Rule67ValidationRowRecord>();
+            if (await batchReader.NextResultAsync())
+            {
+                while (await batchReader.ReadAsync())
+                {
+                    var displayValues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = 0; i < batchReader.FieldCount; i++)
+                        displayValues[batchReader.GetName(i)] = batchReader.IsDBNull(i) ? null : Convert.ToString(batchReader.GetValue(i), CultureInfo.InvariantCulture);
+                    var row = new Rule67ValidationRowRecord
+                    {
+                        ValidationNumber      = reviewRows.Count + 1,
+                        ControlType           = displayValues.TryGetValue("Control_Type", out var ct) ? ct ?? "" : "",
+                        ControlLabel          = displayValues.TryGetValue("Control_Label", out var cl) ? cl ?? "" : "",
+                        ValidationResult      = displayValues.TryGetValue("ValidationResult", out var vr) ? vr ?? "" : "",
+                        ValidationExplanation = displayValues.TryGetValue("Validation_Explanation", out var ve) ? ve ?? "" : "",
+                        ExceptionCode         = displayValues.TryGetValue("Exception_Code", out var ec) ? ec ?? "" : "",
+                        DisplayValues         = displayValues
+                    };
+                    EnrichDisplayValues(row);
+                    reviewRows.Add(row);
+                }
+            }
+            await batchReader.CloseAsync();
+            reviewRows = NormalizeRows(reviewRows);
+            var failCount     = notInStudCount + invalidE051Count;
             var isPreviewOnly = !includeAllReviewRows && totalChecked > reviewRows.Count;
 
             var controlSummaries = new List<Rule67ControlSummaryItemViewModel>
@@ -571,6 +595,92 @@ SELECT
 
         // ─── SQL Builders ─────────────────────────────────────────────────────
 
+        // Materialise temp tables once, return counts (RS1) + preview rows (RS2) in a single round-trip.
+        private static string BuildSingleBatchSql(string cregTable, string studTable, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values, int? maxRows)
+        {
+            var e051ValidExpr = e051Values.Count > 0
+                ? $"CASE WHEN CP.CREG_E051 IN ({BuildInClauseSql(e051Values)}) THEN 'Yes' ELSE 'No' END"
+                : "'Yes'";
+            var passExpr = e051Values.Count > 0
+                ? $"SP.STUD_NO IS NOT NULL AND CP.CREG_E051 IN ({BuildInClauseSql(e051Values)})"
+                : "SP.STUD_NO IS NOT NULL";
+            var failReasonExpr = e051Values.Count > 0
+                ? $"CASE WHEN SP.STUD_NO IS NULL THEN 'Not found in STUD' WHEN CP.CREG_E051 NOT IN ({BuildInClauseSql(e051Values)}) THEN 'E051 code not in expected values' ELSE '' END"
+                : "CASE WHEN SP.STUD_NO IS NULL THEN 'Not found in STUD' ELSE '' END";
+            var top     = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
+            var orderBy = maxRows.HasValue && maxRows.Value > 0
+                ? "CASE WHEN ValidationResult = 'FAIL' THEN 0 ELSE 1 END, CREG_STUD_NO, CREG_QUAL"
+                : "CREG_STUD_NO, CREG_QUAL";
+
+            return $@"
+IF OBJECT_ID('tempdb..#R67CregPairs') IS NOT NULL DROP TABLE #R67CregPairs;
+IF OBJECT_ID('tempdb..#R67StudPairs') IS NOT NULL DROP TABLE #R67StudPairs;
+IF OBJECT_ID('tempdb..#R67Results')   IS NOT NULL DROP TABLE #R67Results;
+
+SELECT DISTINCT
+    CONVERT(nvarchar(255), C.[{cregStudentCol}])                                   AS CREG_STUD_NO,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))))                 AS CREG_QUAL,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregE051Col}]))))                 AS CREG_E051
+INTO #R67CregPairs
+FROM [{cregTable}] C
+WHERE C.[{cregStudentCol}] IS NOT NULL
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregStudentCol}]))) <> ''
+  AND C.[{cregQualCol}] IS NOT NULL
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))) <> '';
+
+CREATE INDEX IX_R67CP ON #R67CregPairs (CREG_STUD_NO, CREG_QUAL);
+
+SELECT DISTINCT
+    CONVERT(nvarchar(255), S.[{studStudentCol}])                                   AS STUD_NO,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), S.[{studQualCol}]))))                 AS STUD_QUAL
+INTO #R67StudPairs
+FROM [{studTable}] S
+WHERE S.[{studStudentCol}] IS NOT NULL
+  AND S.[{studQualCol}] IS NOT NULL;
+
+CREATE INDEX IX_R67SP ON #R67StudPairs (STUD_NO, STUD_QUAL);
+
+SELECT
+    CP.CREG_STUD_NO, CP.CREG_QUAL, CP.CREG_E051,
+    SP.STUD_NO, SP.STUD_QUAL,
+    CASE WHEN SP.STUD_NO IS NOT NULL THEN 'Yes' ELSE 'No' END            AS IN_STUD,
+    {e051ValidExpr}                                                       AS E051_VALID,
+    CASE WHEN {passExpr}            THEN 'PASS' ELSE 'FAIL' END          AS ValidationResult,
+    {failReasonExpr}                                                      AS FailReason
+INTO #R67Results
+FROM #R67CregPairs CP
+LEFT JOIN #R67StudPairs SP ON SP.STUD_NO = CP.CREG_STUD_NO AND SP.STUD_QUAL = CP.CREG_QUAL;
+
+CREATE INDEX IX_R67VR ON #R67Results (ValidationResult, FailReason);
+
+-- Result set 1: counts
+SELECT
+    COUNT(1)                                                                        AS TotalChecked,
+    SUM(CASE WHEN ValidationResult = 'PASS'                              THEN 1 ELSE 0 END) AS PassCount,
+    SUM(CASE WHEN FailReason = 'Not found in STUD'                       THEN 1 ELSE 0 END) AS NotInStudCount,
+    SUM(CASE WHEN FailReason = 'E051 code not in expected values'        THEN 1 ELSE 0 END) AS InvalidE051Count
+FROM #R67Results;
+
+-- Result set 2: preview / full rows
+SELECT {top}
+    1 AS Control_Sort, 'Control_1' AS Control_Type,
+    'CONTROL 1: CREG [{cregTable}].[{cregStudentCol}]+[{cregQualCol}] pair in STUD with [{cregE051Col}] filter' AS Control_Label,
+    ValidationResult,
+    CASE WHEN ValidationResult = 'PASS'
+        THEN 'PASS: CREG pair found in STUD and E051 code matches.'
+        ELSE 'FAIL (00708): ' + ISNULL(FailReason, 'Validation failed.')
+    END AS Validation_Explanation,
+    CREG_STUD_NO, CREG_QUAL, CREG_E051, STUD_NO, STUD_QUAL, IN_STUD, E051_VALID, FailReason,
+    CASE WHEN ValidationResult = 'FAIL' THEN '00708' ELSE '' END AS Exception_Code
+FROM #R67Results
+ORDER BY {orderBy};
+
+DROP TABLE IF EXISTS #R67CregPairs;
+DROP TABLE IF EXISTS #R67StudPairs;
+DROP TABLE IF EXISTS #R67Results;";
+        }
+
+        // BuildSourceCtes is retained only for the standalone GenerateSqlAsync / Export path.
         private static string BuildSourceCtes(string cregTable, string studTable, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values)
         {
             var e051ValidExpr = e051Values.Count > 0
@@ -622,66 +732,6 @@ ValidationResults AS
         ON SP.STUD_NO  = CP.CREG_STUD_NO
        AND SP.STUD_QUAL = CP.CREG_QUAL
 )";
-        }
-
-        private static string BuildPopulationCountSql(string cregTable, string studTable, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values) => $@"
-{BuildSourceCtes(cregTable, studTable, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values)}
-SELECT
-    COUNT(1)                                                                                         AS TotalChecked,
-    SUM(CASE WHEN ValidationResult = 'PASS' THEN 1 ELSE 0 END)                                      AS PassCount,
-    SUM(CASE WHEN FailReason = 'Not found in STUD' THEN 1 ELSE 0 END)                               AS NotInStudCount,
-    SUM(CASE WHEN FailReason = 'E051 code not in expected values' THEN 1 ELSE 0 END)                AS InvalidE051Count
-FROM ValidationResults;";
-
-        private static string BuildAllRowsSql(string cregTable, string studTable, int? maxRows, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values)
-        {
-            var top     = maxRows.HasValue && maxRows.Value > 0 ? $"TOP {maxRows.Value}" : string.Empty;
-            var orderBy = maxRows.HasValue && maxRows.Value > 0
-                ? "CASE WHEN ValidationResult = 'FAIL' THEN 0 ELSE 1 END, CREG_STUD_NO, CREG_QUAL"
-                : "CREG_STUD_NO, CREG_QUAL";
-
-            return $@"
-{BuildSourceCtes(cregTable, studTable, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values)}
-SELECT {top}
-    1 AS Control_Sort, 'Control_1' AS Control_Type,
-    'CONTROL 1: CREG [{cregTable}].[{cregStudentCol}]+[{cregQualCol}] pair in STUD with [{cregE051Col}] filter' AS Control_Label,
-    ValidationResult,
-    CASE WHEN ValidationResult = 'PASS'
-        THEN 'PASS: CREG pair found in STUD and E051 code matches.'
-        ELSE 'FAIL (00708): ' + ISNULL(FailReason, 'Validation failed.')
-    END AS Validation_Explanation,
-    CREG_STUD_NO, CREG_QUAL, CREG_E051, STUD_NO, STUD_QUAL, IN_STUD, E051_VALID, FailReason,
-    CASE WHEN ValidationResult = 'FAIL' THEN '00708' ELSE '' END AS Exception_Code
-FROM ValidationResults
-ORDER BY {orderBy};";
-        }
-
-        private async Task<List<Rule67ValidationRowRecord>> LoadRowsAsync(SqlConnection connection, string cregTable, string studTable, int? maxRows, string cregStudentCol, string cregQualCol, string cregE051Col, string studStudentCol, string studQualCol, IReadOnlyList<string> e051Values)
-        {
-            await using var command = connection.CreateConfiguredCommand();
-            command.CommandText = BuildAllRowsSql(cregTable, studTable, maxRows, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values);
-            await using var reader = await command.ExecuteReaderAsync();
-            var rows = new List<Rule67ValidationRowRecord>();
-            while (await reader.ReadAsync())
-            {
-                var displayValues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-                for (var i = 0; i < reader.FieldCount; i++)
-                    displayValues[reader.GetName(i)] = reader.IsDBNull(i) ? null : Convert.ToString(reader.GetValue(i), CultureInfo.InvariantCulture);
-
-                var row = new Rule67ValidationRowRecord
-                {
-                    ValidationNumber      = rows.Count + 1,
-                    ControlType           = ReadValue(displayValues, "Control_Type"),
-                    ControlLabel          = ReadValue(displayValues, "Control_Label"),
-                    ValidationResult      = ReadValue(displayValues, "ValidationResult"),
-                    ValidationExplanation = ReadValue(displayValues, "Validation_Explanation"),
-                    ExceptionCode         = ReadValue(displayValues, "Exception_Code"),
-                    DisplayValues         = displayValues
-                };
-                EnrichDisplayValues(row);
-                rows.Add(row);
-            }
-            return rows;
         }
 
         private static void EnrichDisplayValues(Rule67ValidationRowRecord row)
