@@ -489,17 +489,22 @@ SELECT
             var e051Values     = ParseFilterValues(request.E051FilterValues);
             var e051ValuesText = e051Values.Count > 0 ? string.Join(", ", e051Values) : "ALL — no filter applied";
 
-            var cregCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{cregTable}];");
-            var studCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{studTable}];");
-
-            // Single-batch: materialise temp tables once, then return counts + preview rows
+            // Single batch: RS1=source counts, RS2=validation counts, RS3=preview rows
             await using var batchCmd = conn.CreateConfiguredCommand();
             batchCmd.CommandText = BuildSingleBatchSql(cregTable, studTable, cregStudentCol, cregQualCol, cregE051Col, studStudentCol, studQualCol, e051Values, includeAllReviewRows ? null : BrowserPreviewRowLimit);
             await using var batchReader = await batchCmd.ExecuteReaderAsync();
 
-            // Result set 1: counts
-            int totalChecked = 0, passCount = 0, notInStudCount = 0, invalidE051Count = 0;
+            // RS 1: source table row counts
+            int cregCount = 0, studCount = 0;
             if (await batchReader.ReadAsync())
+            {
+                cregCount = batchReader.IsDBNull(0) ? 0 : Convert.ToInt32(batchReader.GetValue(0), CultureInfo.InvariantCulture);
+                studCount = batchReader.IsDBNull(1) ? 0 : Convert.ToInt32(batchReader.GetValue(1), CultureInfo.InvariantCulture);
+            }
+
+            // RS 2: validation counts
+            int totalChecked = 0, passCount = 0, notInStudCount = 0, invalidE051Count = 0;
+            if (await batchReader.NextResultAsync() && await batchReader.ReadAsync())
             {
                 totalChecked     = GetInt(batchReader, 0);
                 passCount        = GetInt(batchReader, 1);
@@ -507,7 +512,7 @@ SELECT
                 invalidE051Count = GetInt(batchReader, 3);
             }
 
-            // Result set 2: preview/full rows
+            // RS 3: preview / full rows
             var reviewRows = new List<Rule67ValidationRowRecord>();
             if (await batchReader.NextResultAsync())
             {
@@ -617,51 +622,62 @@ IF OBJECT_ID('tempdb..#R67CregPairs') IS NOT NULL DROP TABLE #R67CregPairs;
 IF OBJECT_ID('tempdb..#R67StudPairs') IS NOT NULL DROP TABLE #R67StudPairs;
 IF OBJECT_ID('tempdb..#R67Results')   IS NOT NULL DROP TABLE #R67Results;
 
+-- RS 1: source table row counts (included in the same batch to avoid extra round-trips)
+SELECT
+    (SELECT COUNT(*) FROM [{cregTable}] WITH (NOLOCK)) AS CregCount,
+    (SELECT COUNT(*) FROM [{studTable}] WITH (NOLOCK)) AS StudCount;
+
+-- Materialise CREG distinct pairs — NOLOCK: VALPAC tables are read-only during validation
 SELECT DISTINCT
-    CONVERT(nvarchar(255), C.[{cregStudentCol}])                                   AS CREG_STUD_NO,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))))                 AS CREG_QUAL,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregE051Col}]))))                 AS CREG_E051
+    CONVERT(nvarchar(255), C.[{cregStudentCol}])                       AS CREG_STUD_NO,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))))     AS CREG_QUAL,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregE051Col}]))))     AS CREG_E051
 INTO #R67CregPairs
-FROM [{cregTable}] C
+FROM [{cregTable}] C WITH (NOLOCK)
 WHERE C.[{cregStudentCol}] IS NOT NULL
   AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregStudentCol}]))) <> ''
   AND C.[{cregQualCol}] IS NOT NULL
-  AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))) <> '';
+  AND LTRIM(RTRIM(CONVERT(nvarchar(255), C.[{cregQualCol}]))) <> ''
+OPTION (MAXDOP 4);
 
 CREATE INDEX IX_R67CP ON #R67CregPairs (CREG_STUD_NO, CREG_QUAL);
 
+-- Materialise STUD distinct pairs
 SELECT DISTINCT
-    CONVERT(nvarchar(255), S.[{studStudentCol}])                                   AS STUD_NO,
-    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), S.[{studQualCol}]))))                 AS STUD_QUAL
+    CONVERT(nvarchar(255), S.[{studStudentCol}])                       AS STUD_NO,
+    UPPER(LTRIM(RTRIM(CONVERT(nvarchar(255), S.[{studQualCol}]))))     AS STUD_QUAL
 INTO #R67StudPairs
-FROM [{studTable}] S
+FROM [{studTable}] S WITH (NOLOCK)
 WHERE S.[{studStudentCol}] IS NOT NULL
-  AND S.[{studQualCol}] IS NOT NULL;
+  AND S.[{studQualCol}] IS NOT NULL
+OPTION (MAXDOP 4);
 
 CREATE INDEX IX_R67SP ON #R67StudPairs (STUD_NO, STUD_QUAL);
 
+-- Materialise join results
 SELECT
     CP.CREG_STUD_NO, CP.CREG_QUAL, CP.CREG_E051,
     SP.STUD_NO, SP.STUD_QUAL,
-    CASE WHEN SP.STUD_NO IS NOT NULL THEN 'Yes' ELSE 'No' END            AS IN_STUD,
-    {e051ValidExpr}                                                       AS E051_VALID,
-    CASE WHEN {passExpr}            THEN 'PASS' ELSE 'FAIL' END          AS ValidationResult,
-    {failReasonExpr}                                                      AS FailReason
+    CASE WHEN SP.STUD_NO IS NOT NULL THEN 'Yes' ELSE 'No' END AS IN_STUD,
+    {e051ValidExpr}                                            AS E051_VALID,
+    CASE WHEN {passExpr}  THEN 'PASS' ELSE 'FAIL' END         AS ValidationResult,
+    {failReasonExpr}                                           AS FailReason
 INTO #R67Results
 FROM #R67CregPairs CP
-LEFT JOIN #R67StudPairs SP ON SP.STUD_NO = CP.CREG_STUD_NO AND SP.STUD_QUAL = CP.CREG_QUAL;
+LEFT JOIN #R67StudPairs SP ON SP.STUD_NO = CP.CREG_STUD_NO AND SP.STUD_QUAL = CP.CREG_QUAL
+OPTION (MAXDOP 4);
 
 CREATE INDEX IX_R67VR ON #R67Results (ValidationResult, FailReason);
 
--- Result set 1: counts
+-- RS 2: validation counts
 SELECT
     COUNT(1)                                                                        AS TotalChecked,
-    SUM(CASE WHEN ValidationResult = 'PASS'                              THEN 1 ELSE 0 END) AS PassCount,
-    SUM(CASE WHEN FailReason = 'Not found in STUD'                       THEN 1 ELSE 0 END) AS NotInStudCount,
-    SUM(CASE WHEN FailReason = 'E051 code not in expected values'        THEN 1 ELSE 0 END) AS InvalidE051Count
+    SUM(CASE WHEN ValidationResult = 'PASS'                        THEN 1 ELSE 0 END) AS PassCount,
+    SUM(CASE WHEN FailReason = 'Not found in STUD'                 THEN 1 ELSE 0 END) AS NotInStudCount,
+    SUM(CASE WHEN FailReason = 'E051 code not in expected values'  THEN 1 ELSE 0 END) AS InvalidE051Count
 FROM #R67Results;
 
--- Result set 2: preview / full rows
+-- RS 3: preview / full rows
 SELECT {top}
     1 AS Control_Sort, 'Control_1' AS Control_Type,
     'CONTROL 1: CREG [{cregTable}].[{cregStudentCol}]+[{cregQualCol}] pair in STUD with [{cregE051Col}] filter' AS Control_Label,
