@@ -927,7 +927,9 @@ WITH {comparisonCte}BaseData AS
         ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Validation_Number,
         {firstDaySql} AS First_Day_Class,
         {lastDaySql} AS Last_Day_Class,
-        {censusDateSql} AS Midpoint_CENSUS_DATE
+        {censusDateSql} AS Midpoint_CENSUS_DATE,
+        {currentDaysSql ?? "CAST(NULL AS int)"} AS Raw_c_Days,
+        {currentDaysHalfSql ?? "CAST(NULL AS decimal(18,4))"} AS Raw_c_Days_2
     FROM [{table}] src{comparisonJoinSql}{(string.IsNullOrWhiteSpace(blockWhere) ? "" : $"\n{blockWhere}")}
 ),
 Prepared AS
@@ -937,8 +939,10 @@ Prepared AS
         First_Day_Class,
         Last_Day_Class,
         Midpoint_CENSUS_DATE,
+        Raw_c_Days,
+        Raw_c_Days_2,
         CASE
-            WHEN {currentDaysSql ?? "NULL"} IS NOT NULL THEN {currentDaysSql}
+            WHEN Raw_c_Days IS NOT NULL THEN Raw_c_Days
             WHEN First_Day_Class IS NULL OR Last_Day_Class IS NULL THEN NULL
             ELSE CAST(FLOOR(DATEDIFF_BIG(SECOND, First_Day_Class, Last_Day_Class) / 86400.0) AS int)
         END AS c_Days
@@ -953,18 +957,18 @@ Calculated AS
         Midpoint_CENSUS_DATE,
         c_Days,
         CASE
-            WHEN {currentDaysHalfSql ?? "NULL"} IS NOT NULL THEN {currentDaysHalfSql}
+            WHEN Raw_c_Days_2 IS NOT NULL THEN Raw_c_Days_2
             WHEN c_Days IS NULL THEN NULL
             ELSE CAST(c_Days AS decimal(18, 1)) / 2.0
         END AS c_Days_2,
         CASE
             WHEN First_Day_Class IS NULL OR c_Days IS NULL THEN NULL
-            WHEN {currentDaysSql ?? "NULL"} IS NOT NULL AND {currentDaysHalfSql ?? "NULL"} IS NOT NULL
+            WHEN Raw_c_Days IS NOT NULL AND Raw_c_Days_2 IS NOT NULL
                 THEN DATEADD(
                     DAY,
                     CASE
-                        WHEN c_Days % 2 = 0 THEN CAST(({currentDaysHalfSql}) - 1 AS int)
-                        ELSE CAST({currentDaysHalfSql} AS int)
+                        WHEN c_Days % 2 = 0 THEN CAST(Raw_c_Days_2 - 1 AS int)
+                        ELSE CAST(Raw_c_Days_2 AS int)
                     END,
                     First_Day_Class
                 )
