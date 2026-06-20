@@ -572,6 +572,10 @@ SELECT
             }
             await batchReader.CloseAsync();
             reviewRows = NormalizeRows(reviewRows);
+            // Compute sub-category totals from full RS4 before capping
+            var r29ConfirmedTotal    = rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "Yes",        StringComparison.OrdinalIgnoreCase));
+            var r29InCregPassTotal   = rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "No",         StringComparison.OrdinalIgnoreCase));
+            var r29NotInCregTotal    = rule29OnlyRows.Count(r => string.Equals(r.ConfirmedByR67, "Not in CREG",StringComparison.OrdinalIgnoreCase));
             if (!includeAllReviewRows && rule29OnlyRows.Count > BrowserPreviewRowLimit)
                 rule29OnlyRows = rule29OnlyRows.Take(BrowserPreviewRowLimit).ToList();
             var failCount     = notInStudCount + invalidE051Count;
@@ -626,8 +630,11 @@ SELECT
                 DetailRecordCount      = detailCount,
                 ConfirmedByRule29Count = confirmedByRule29Count,
                 NotInRule29Count       = notInRule29Count,
-                Rule29OnlyCount        = rule29OnlyCount,
-                Rule29OnlyRows         = rule29OnlyRows,
+                Rule29OnlyCount            = rule29OnlyCount,
+                Rule29ConfirmedByR67Count  = r29ConfirmedTotal,
+                Rule29InCregPassCount      = r29InCregPassTotal,
+                Rule29NotInCregCount       = r29NotInCregTotal,
+                Rule29OnlyRows             = rule29OnlyRows,
                 TableLinkageText  = $"{request.CregTable}.[{cregStudentCol}]+[{cregQualCol}] <> {request.StudTable}.[{studStudentCol}]+[{studQualCol}] (E051 filter: [{cregE051Col}] IN {e051ValuesText})",
                 RuleModeText      = $"CREG pairs checked against STUD, [{cregE051Col}] must be IN ({e051ValuesText})",
                 ProcedureSteps    = new List<string>
@@ -1091,6 +1098,7 @@ SELECT CAST(SCOPE_IDENTITY() AS int);";
             }).ToList(),
             DetailRecordCount = s.DetailRecordCount, ConfirmedByRule29Count = s.ConfirmedByRule29Count,
             NotInRule29Count = s.NotInRule29Count, Rule29OnlyCount = s.Rule29OnlyCount,
+            Rule29ConfirmedByR67Count = s.Rule29ConfirmedByR67Count, Rule29InCregPassCount = s.Rule29InCregPassCount, Rule29NotInCregCount = s.Rule29NotInCregCount,
             Rule29OnlyRows = s.Rule29OnlyRows.Select(r => new Rule67Rule29OnlyRow
             {
                 RowNumber = r.RowNumber, StudentNo = r.StudentNo, QualCode = r.QualCode,

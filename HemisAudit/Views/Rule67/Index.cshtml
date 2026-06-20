@@ -34,6 +34,8 @@
     .R67-cat-tab.active { background:var(--primary,#1a237e); border-color:var(--primary,#1a237e); color:#fff; }
     .R67-cat-tab[data-cat="PASS"].active         { background:#1b5e20; border-color:#1b5e20; }
     .R67-cat-tab[data-cat="NOT_IN_STUD"].active  { background:#b71c1c; border-color:#b71c1c; }
+    .R67-cat-tab[data-cat="NOT_IN_STUD_E051_YES"].active  { background:#c62828; border-color:#c62828; }
+    .R67-cat-tab[data-cat="NOT_IN_STUD_E051_NO"].active   { background:#ad1457; border-color:#ad1457; }
     .R67-cat-tab[data-cat="E051_INVALID"].active { background:#e65100; border-color:#e65100; }
     .R67-cat-tab[data-cat="CONFIRMED"].active         { background:#2e7d32; border-color:#2e7d32; }
     .R67-cat-tab[data-cat="NOT_CONFIRMED"].active     { background:#f57f17; border-color:#f57f17; }
@@ -567,6 +569,8 @@ window.toggleAccordion = function (section) {
 
         const passRows         = allRows.filter(r=>String(r.validationResult||'').toUpperCase()==='PASS');
         const notInStudRows    = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='not found in stud');
+        const notInStudE051YesRows = notInStudRows.filter(r=>String((r.displayValues||{}).E051_VALID||(r.displayValues||{}).e051_valid||'').toLowerCase()==='yes');
+        const notInStudE051NoRows  = notInStudRows.filter(r=>String((r.displayValues||{}).E051_VALID||(r.displayValues||{}).e051_valid||'').toLowerCase()==='no');
         const e051InvalidRows  = allRows.filter(r=>String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase()==='e051 code not in expected values');
         const confirmedRows    = summary.detailTable ? allRows.filter(r=>{ const rs=String((r.displayValues||{}).Reconciliation_Status||(r.displayValues||{}).RECONCILIATION_STATUS||''); return rs==='Confirmed by Rule 29'; }) : [];
         const notConfirmedRows = summary.detailTable ? allRows.filter(r=>{ const rs=String((r.displayValues||{}).Reconciliation_Status||(r.displayValues||{}).RECONCILIATION_STATUS||''); return rs==='Not in Rule 29'; }) : [];
@@ -752,6 +756,8 @@ window.toggleAccordion = function (section) {
 
         const passRows         = allRows.filter(r => String(r.validationResult||'').toUpperCase()==='PASS');
         const notInStudRows    = allRows.filter(r => { const fr=String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase(); return fr==='not found in stud'; });
+        const notInStudE051YesRows = notInStudRows.filter(r => { const ev=String((r.displayValues||{}).E051_VALID||(r.displayValues||{}).e051_valid||'').toLowerCase(); return ev==='yes'; });
+        const notInStudE051NoRows  = notInStudRows.filter(r => { const ev=String((r.displayValues||{}).E051_VALID||(r.displayValues||{}).e051_valid||'').toLowerCase(); return ev==='no'; });
         const e051InvalidRows  = allRows.filter(r => { const fr=String((r.displayValues||{}).FailReason||(r.displayValues||{}).FAILREASON||'').toLowerCase(); return fr==='e051 code not in expected values'; });
         const getRecon         = r => String((r.displayValues||{}).Reconciliation_Status||(r.displayValues||{}).RECONCILIATION_STATUS||'');
         const confirmedRows    = hasDetail ? allRows.filter(r=>getRecon(r)==='Confirmed by Rule 29') : [];
@@ -765,15 +771,17 @@ window.toggleAccordion = function (section) {
         const catMap = {
             ALL:               { rows: allRows,             label: 'All Results',                    count: summary.totalValidated||allRows.length,          isRule29: false },
             PASS:              { rows: passRows,             label: 'PASS',                           count: summary.passCount||passRows.length,              isRule29: false },
+            NOT_IN_STUD_E051_YES: { rows: notInStudE051YesRows, label: 'Not in STUD | E051 Yes',    count: summary.notInStudE051ValidCount||notInStudE051YesRows.length, isRule29: false },
+            NOT_IN_STUD_E051_NO:  { rows: notInStudE051NoRows,  label: 'Not in STUD | E051 No',     count: summary.notInStudE051InvalidCount||notInStudE051NoRows.length, isRule29: false },
             NOT_IN_STUD:       { rows: notInStudRows,        label: 'FAIL — Not in STUD',             count: summary.notInStudCount||notInStudRows.length,    isRule29: false },
             E051_INVALID:      { rows: e051InvalidRows,      label: 'FAIL — E051 Invalid',            count: summary.invalidE051Count||e051InvalidRows.length, isRule29: false },
             ...(hasDetail ? {
                 CONFIRMED:            { rows: confirmedRows,       label: 'Confirmed by Rule 29',           count: summary.confirmedByRule29Count||confirmedRows.length,    isRule29: false },
                 NOT_CONFIRMED:        { rows: notConfirmedRows,    label: 'Not Confirmed (R67 Only)',       count: summary.notInRule29Count||notConfirmedRows.length,       isRule29: false },
-                RULE29_ONLY:          { rows: rule29OnlyRows,      label: `Rule 29 Only (${escapeHtml(summary.detailErrorCode||'00708')})`, count: rule29OnlyRows.length, isRule29: true },
-                RULE29_CONFIRMED:     { rows: rule29ConfirmedRows, label: 'R29 Confirmed by Rule 67',      count: rule29ConfirmedRows.length,    isRule29: true },
-                RULE29_NOT_CONFIRMED: { rows: rule29InCregPassRows,label: 'R29 In CREG — Not Confirmed',  count: rule29InCregPassRows.length,   isRule29: true },
-                RULE29_NOT_IN_CREG:   { rows: rule29NotInCregRows, label: 'R29 Not in CREG',              count: rule29NotInCregRows.length,    isRule29: true }
+                RULE29_ONLY:          { rows: rule29OnlyRows,      label: `Rule 29 Only (${escapeHtml(summary.detailErrorCode||'00708')})`, count: summary.rule29OnlyCount||rule29OnlyRows.length, isRule29: true },
+                RULE29_CONFIRMED:     { rows: rule29ConfirmedRows, label: 'R29 Confirmed by Rule 67',      count: summary.rule29ConfirmedByR67Count||rule29ConfirmedRows.length,  isRule29: true },
+                RULE29_NOT_CONFIRMED: { rows: rule29InCregPassRows,label: 'R29 In CREG — Not Confirmed',  count: summary.rule29InCregPassCount||rule29InCregPassRows.length,      isRule29: true },
+                RULE29_NOT_IN_CREG:   { rows: rule29NotInCregRows, label: 'R29 Not in CREG',              count: summary.rule29NotInCregCount||rule29NotInCregRows.length,        isRule29: true }
             } : {})
         };
 

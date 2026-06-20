@@ -91,6 +91,9 @@ namespace HemisAudit.ViewModels
         public int PassCount { get; set; }
         public int FailCount { get; set; }
         public int NotInStudCount { get; set; }
+        public int NotInStudE051ValidCount { get; set; }
+        public int NotInStudE051InvalidCount { get; set; }
+        public int GhostStudentCount { get; set; }
         public int InvalidE051Count { get; set; }
         public decimal ExceptionRate { get; set; }
         public string Status { get; set; } = "";
@@ -120,6 +123,9 @@ namespace HemisAudit.ViewModels
         public int ConfirmedByRule29Count { get; set; }
         public int NotInRule29Count { get; set; }
         public int Rule29OnlyCount { get; set; }
+        public int Rule29ConfirmedByR67Count { get; set; }
+        public int Rule29InCregPassCount { get; set; }
+        public int Rule29NotInCregCount { get; set; }
         public List<Rule67Rule29OnlyRow> Rule29OnlyRows { get; set; } = new();
         public string? Warning { get; set; }
         public string? Error { get; set; }
