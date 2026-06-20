@@ -388,6 +388,7 @@ namespace HemisAudit.ViewModels
         public int TotalValidated { get; set; }
         public int PassCount { get; set; }
         public int FailCount { get; set; }
+        public int GhostStudentCount { get; set; }
         public decimal ExceptionRate { get; set; }
         public DateTime RunAt { get; set; }
         public string RunByUserName { get; set; } = "";
