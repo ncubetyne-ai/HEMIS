@@ -1,361 +1,189 @@
-# HEMIS Audit System — Project Guide
+# HEMIS AUDIT MANAGEMENT SYSTEM
+## System Overview & Purpose Summary
 
-**Prepared by:** Mamishi Madire  
-**Organisation:** SNG Grant Thornton  
-**Document Type:** Project Overview & User Guide  
-**Date:** June 2026
+**SNG Grant Thornton &nbsp;|&nbsp; Data Analytics — HEMIS Assurance &nbsp;|&nbsp; June 2026**
 
----
-
-## Table of Contents
-
-1. [What Is HEMIS and Why Does It Need Auditing?](#1-what-is-hemis-and-why-does-it-need-auditing)
-2. [Why I Built This System](#2-why-i-built-this-system)
-3. [What the System Does](#3-what-the-system-does)
-4. [How the System Assists SNG Grant Thornton](#4-how-the-system-assists-sng-grant-thornton)
-5. [The 67 Audit Rules](#5-the-67-audit-rules)
-6. [Live Reference Tools Built Into the System](#6-live-reference-tools-built-into-the-system)
-7. [Roles and Access Control](#7-roles-and-access-control)
-8. [The Signoff Workflow](#8-the-signoff-workflow)
-9. [Technology Overview](#9-technology-overview)
-10. [Summary](#10-summary)
+| | |
+|---|---|
+| **Prepared by:** | Mamishi Madire |
+| **Role:** | Trainee Accountant (ACCA) — Data Analytics |
+| **Stream:** | General Assurance / Digitech Assurance |
+| **Date:** | June 2026 |
 
 ---
 
 ## 1. What Is HEMIS and Why Does It Need Auditing?
 
-**HEMIS** (Higher Education Management Information System) is the national data system used by South African higher education institutions — universities, universities of technology, and private higher education institutions — to submit student and staff data to the Department of Higher Education and Training (DHET). This data is used to allocate government funding to institutions.
+HEMIS — the Higher Education Management Information System — is the national data platform used by South African universities, universities of technology, and other higher education institutions to submit student and staff data to the Department of Higher Education and Training (DHET). Government funding subsidies are calculated directly from the data each institution submits through HEMIS.
 
-Because public funding is determined directly by the data submitted through HEMIS, the accuracy and integrity of that data is critical. Errors, inconsistencies, or irregularities in the submitted data can result in:
+Because public funding is allocated based on this data, its accuracy and integrity are critical. Errors, inconsistencies, or irregularities in submitted HEMIS data can result in:
 
-- Incorrect government subsidy allocations
-- Funding being paid for students who do not qualify
-- Non-compliance with HEMIS directives and NQF requirements
+- Incorrect government subsidy allocations — the institution may receive more or less funding than it is entitled to
+- Funding being paid for students who do not qualify under HEMIS directives
+- Non-compliance with the HEMIS Data Element Dictionary (DEETYAPAC), audit directives, or NQF requirements
 - Reputational and regulatory risk for the institution
 
-SNG Grant Thornton is engaged by higher education institutions to independently audit their HEMIS data before it is submitted to DHET, verifying that the data complies with the HEMIS Data Element Dictionary (DEETYAPAC), audit directives, and applicable NQF standards.
+SNG Grant Thornton is engaged by higher education institutions to independently audit their HEMIS data before submission to DHET — verifying that the data complies with applicable directives and the HEMIS Data Element Dictionary. This engagement requires a structured, repeatable, and well-documented audit process.
 
 ---
 
 ## 2. Why I Built This System
 
-### The Problem with Scripts
+### 2.1 The Observation That Led to This System
 
-Before this system existed, HEMIS audits were performed using technical scripts — SQL queries, Python programs, R scripts, or Jupyter Notebooks. While these tools are powerful, they present a significant barrier in an audit environment:
+Previously, HEMIS audit engagements at SNG Grant Thornton were performed with the assistance of an external service provider. During the course of the engagement, I observed that the service provider was running HEMIS validations using technical scripts — SQL queries, R scripts, and similar tools — to execute the required checks against the institution's data.
 
-- A team member must understand how to **read and interpret code** to follow the logic of a validation
-- A trainee auditor must be **taught to write or modify scripts** before they can contribute meaningfully
-- When an auditor leaves the team, the institutional knowledge embedded in their scripts leaves with them
-- Scripts are hard to **standardise** — every auditor may write the same check differently
-- There is no built-in **workflow** for review, approval, or sign-off; these steps are managed manually
+This observation raised two questions: first, whether SNG Grant Thornton could perform these validations independently rather than relying on an external party; and second, whether there was a better way to deliver those validations than through scripts. Scripts, while technically capable, create significant limitations in an audit team environment:
 
-This creates a situation where the quality and speed of the audit depends heavily on the technical skill of the individual performing it, which is inconsistent with how a professional audit firm manages risk and quality.
+- Only someone who can read and write code can operate or understand the validation — this immediately excludes most trainees and many audit professionals
+- Scripts are not self-documenting — a reviewer cannot easily follow the audit logic without being taken through the code line by line
+- There is no standardisation — different people may implement the same validation differently, producing inconsistent results across engagements
+- There is no built-in workflow for review, approval, or sign-off — these steps must be managed separately
+- When the person who wrote the scripts leaves, their knowledge leaves with them
 
-### A Better Approach: A Purpose-Built Audit Tool
+Rather than replicating the service provider's approach by writing scripts of our own, I decided to build a purpose-built system — one that SNG Grant Thornton can own, operate, and scale independently, without reliance on an external party or on any individual's technical scripting skills.
 
-Consider how SNG Grant Thornton's auditors use **LEAP** — the firm's audit management platform. Trainees, seniors, managers, and directors can all use LEAP effectively after training, regardless of their technical background. Nobody needs to know how LEAP's database is structured or how its queries are written. The tool presents a clear interface, guides the user through the process, and enforces the workflow.
+Consider how this compares to how SNG Grant Thornton's audit teams currently work:
 
-**I built this system for exactly the same reason.**
+> Every member of an engagement team — trainee, senior, manager, or director — can be trained to use **LEAP**, the firm's audit management platform, after a short onboarding period. Nobody needs to understand how LEAP's database is structured, how its queries are written, or how its workflows are implemented. The platform guides users through the process, presents a consistent interface, and enforces the quality control workflow automatically.
 
-The HEMIS Audit System is a purpose-built, browser-based application that brings the same philosophy to HEMIS data auditing:
+**The HEMIS Audit System was built with exactly the same philosophy in mind.**
 
-- Any team member can be **trained to operate the system** within a short period
-- The audit logic is **built into the system** — users do not need to understand SQL or statistics to run a validation
-- All 67 audit rules are presented through a **consistent, guided interface**
-- The workflow — from running a validation to analyst sign-off, manager review, and director approval — is **enforced by the system**
-- Results are **stored in a database** and can be retrieved at any time, just as archived engagements are accessible in LEAP
+### 2.2 A Purpose-Built Audit Tool
 
-This shifts HEMIS auditing from a technical, individual-dependent activity into a **managed, repeatable, team-based process** consistent with professional audit standards.
+Rather than writing scripts to replicate what the service provider was doing, I built a browser-based audit management system that any member of the SNG Grant Thornton engagement team can operate — without writing or reading a single line of code. The system brings the same accessibility and structure to HEMIS data auditing that LEAP brings to the broader audit practice:
+
+- Any team member — from trainee to director — can be trained to operate the system within a short period, without any knowledge of SQL, R, or statistics
+- All analytics required by VALPAC and the engagement letter are built into the system — users configure parameters through a guided interface and run the validation with a single action
+- Every analytic follows the same consistent interface — a user who knows how to run one procedure can run all of them
+- The review workflow — analyst preparation, manager review, director approval — is enforced by the system and cannot be bypassed
+- Results are stored in a database and are always accessible to the full team, exactly as archived LEAP engagements remain accessible after the engagement closes
+- For those who need it, the system can also generate and export the underlying SQL script for any validation — providing full transparency into the logic and serving as additional technical documentation in the engagement file
+
+This shifts HEMIS auditing from a service-provider-dependent, script-based activity into a managed, repeatable, in-house process — one that SNG Grant Thornton owns and controls, consistent with how the firm manages quality and risk across all its service lines.
 
 ---
 
 ## 3. What the System Does
 
-The HEMIS Audit System is a full web-based audit management platform. The following is a summary of its capabilities.
+The HEMIS Audit System is a full web-based audit management platform. The following summarises its core capabilities.
 
 ### 3.1 Engagement Management
 
-Every HEMIS audit is managed as an **engagement** (referred to in the system as a client). An engagement captures:
+Every HEMIS audit is managed as an engagement within the system. Each engagement records the institution's details, the audit year, the team assigned and their roles, all validation results, and the sign-off and archive status. Engagements move through a structured lifecycle: **Pending → Active → Archived**. Only fully signed-off engagements can be archived, ensuring that incomplete work cannot be closed prematurely.
 
-- The name of the institution being audited
-- The fiscal/reporting year under audit
-- The institution type (University, TVET College, Private Higher Education Institution, etc.)
-- The team assigned to the engagement and their roles
-- All validation runs performed during the engagement
-- The approval and archive status of the engagement
+### 3.2 Audit Analytics Modules
 
-Engagements move through a lifecycle: **Pending → Active → Archived**. Only approved and fully signed-off engagements can be archived.
+The core of the system is a comprehensive set of audit analytics modules covering the full scope of validations required as per the HEMIS Data Element Dictionary (DEETYAPAC / VALPAC) and the terms of the engagement letter. The analytics implemented in the system are not a subset or a selection — they represent the complete set of procedures that the engagement requires to be performed and documented. For each analytic, the system:
 
-### 3.2 The 67 Audit Rule Modules
+- Allows the auditor to connect to the institution's HEMIS SQL Server database
+- Provides a dynamic configuration interface where table and column names are mapped to the analytic parameters
+- Generates and executes the validation query against the live data
+- Presents results clearly: total records validated, pass count, fail count, exception rate, and sample exception rows
+- Stores the full results in the system database for retrieval and review at any time
+- Supports multi-level sign-off: analyst, manager, and director
+- Allows export of results to Excel, CSV, and SQL script
 
-The core of the system is a set of **67 individual audit rule modules**, each corresponding to a specific HEMIS audit validation. Each module:
+Because the analytics are derived directly from the VALPAC directives and the engagement letter scope, the system ensures that no required procedure is omitted and that the audit can demonstrate full coverage against the mandated validation requirements.
 
-1. Allows the auditor to **connect to the institution's HEMIS database** on their SQL Server
-2. Provides a **dynamic configuration interface** where the auditor maps the relevant HEMIS tables and columns to the rule parameters
-3. **Generates and executes the validation query** against the live data
-4. Presents results clearly: total records validated, pass count, fail count, exception rate, and sample rows
-5. Stores the **full results in the system database** so they can be retrieved and reviewed at any time
-6. Supports **multi-level sign-off** (analyst, manager, director)
-7. Allows **export** of results to Excel, CSV, or the raw SQL query
+### 3.3 Portfolio Dashboard and Result Storage
 
-### 3.3 Result Storage and Portfolio Dashboard
-
-Every validation run is saved to the system's database. The **dashboard** provides a portfolio-level view of all engagements, showing:
-
-- Which rules have been run for each engagement
-- The current pass/fail outcome per rule
-- The sign-off status across the team
-- Pending approvals requiring attention
-
-This means the full audit history of every engagement is preserved in the system — auditors do not need to track results in separate spreadsheets or files.
+Every validation run is saved to the system's database. The dashboard provides a portfolio-level view of all active engagements, showing which rules/analytics have been run, the current pass/fail outcome per rule, the sign-off status across the team, and any approvals pending attention. The full audit history of every engagement is preserved and accessible at any time — the team does not need to maintain results in separate spreadsheets or files.
 
 ### 3.4 Internal Messaging
 
-The system includes an **internal messaging platform** allowing the audit team to communicate within the context of the engagement. Messages support file attachments (up to 15 MB), thread-based conversations, read receipts, and edit/delete functionality.
+The system includes a built-in messaging platform for team communication within the context of each engagement. Messages support file attachments (up to 15 MB), thread-based conversations, read receipts, and edit and delete functionality.
 
 ### 3.5 Audit Trail
 
-Every significant action taken in the system is recorded in an **audit log**: logins, logouts, validation runs, sign-offs, downloads, user management actions, and more. This provides full traceability of who did what and when.
-
-### 3.6 User and Access Management
-
-Administrators can create and manage user accounts, assign users to engagements with appropriate roles, enforce password policies, and monitor account activity. The system uses role-based access control aligned with the firm's engagement hierarchy.
+Every significant action in the system is recorded in an audit log — logins, logouts, validation runs, sign-offs, downloads, user management actions, and more — with the user identity, timestamp, and IP address. This provides full traceability supporting both quality review and regulatory compliance.
 
 ---
 
-## 4. How the System Assists SNG Grant Thornton
+## 4. How the System Will Assist SNG Grant Thornton
 
-### 4.1 Speed and Consistency
+### 4.1 Anyone on the Engagement Team Can Use It
 
-Traditional script-based HEMIS validation requires time to write, test, and execute code for each rule. The system has the validation logic for all 67 rules **pre-built and tested**. An auditor can connect to a client's database, configure the rule parameters, and run the validation in minutes — without writing a single line of code.
+The system is designed to be operated by the full team, including trainees and junior staff, without any technical background:
 
-Because every team member uses the same system, the output of the same rule is identical regardless of who runs it. This eliminates the risk of different auditors interpreting or implementing a rule differently.
+| Role | Capabilities in the System |
+|------|---------------------------|
+| **Trainee** | View all engagement results, follow progress, download exports — read-only access ideal for learning and observation |
+| **Data Analyst** | Configure and run all required audit analytics, save workspaces, sign off results as the preparer |
+| **Manager** | Review analyst-signed results, apply manager-level sign-off, manage team assignments per engagement |
+| **Director** | Review all signed results, provide director-level approval, archive completed engagements |
+| **Admin** | Full system control: user management, engagement setup, audit log access, system configuration |
 
-### 4.2 A Database of Engagement Records — Like LEAP
+### 4.2 A Persistent Database of Engagement Records — Like LEAP
 
-One of the most significant benefits of the system is its **persistent database**. Every engagement, every validation run, and every result is stored and retrievable.
+One of the most significant advantages of the system is its persistent database. Every engagement, every validation run, and every result is stored and retrievable at any time — regardless of who ran the validation, when they ran it, or whether they are still on the team.
 
-This mirrors the way LEAP works for the broader audit: archived engagements remain accessible, historical results can be reviewed, and the firm builds an institutional knowledge base that does not depend on any individual team member's files or scripts.
+This mirrors the way LEAP works for the broader audit: archived engagements remain accessible, historical results can be reviewed, and the firm builds an institutional knowledge base that does not depend on any individual team member's files or personal scripts. In practical terms:
 
-In practical terms:
-
-- A manager can open the system and immediately see the current state of every active engagement
+- A manager can open the system and immediately see the current state of every active HEMIS engagement
 - A director can review signed-off results without waiting for a file to be emailed
-- Historical validation runs from prior years are available for comparison
-- Nothing is lost when a team member leaves or rolls off the engagement
+- Historical validation runs from prior years remain available for comparison and continuity
+- Nothing is lost when a team member leaves, rolls off the engagement, or changes roles
 
-### 4.3 Anyone on the Team Can Operate It
+### 4.3 Speed and Consistency
 
-The system is designed to be used by the full engagement team — including trainees and junior staff — without technical knowledge:
+Traditional script-based HEMIS validation requires time to write, test, and execute code for each procedure. The system has the validation logic for every analytic required by VALPAC and the engagement letter pre-built and tested — an auditor can connect to a client's database, configure the parameters, and run the validation in minutes, without writing a single line of code. Because every team member uses the same system, the output of the same analytic is identical regardless of who runs it, eliminating the risk of different auditors interpreting or implementing the same procedure differently.
 
-| Role | What they can do |
-|------|-----------------|
-| **Trainee** | View results, download exports, follow the engagement progress |
-| **Data Analyst** | Configure and run all 67 rule validations, save workspaces, sign off results as the preparer |
-| **Manager** | Review analyst-signed results, add manager sign-off, manage team assignments |
-| **Director** | Review all results, provide director-level approval, archive completed engagements |
-| **Admin** | Full system administration: users, engagements, audit log, system configuration |
+### 4.4 Enforced Workflow and Quality Control
 
-A new team member requires only brief onboarding on how to navigate the system — not training in SQL, Python, or statistics.
+The system enforces a structured review workflow aligned with the firm's quality control requirements:
 
-### 4.4 Enforced Workflow and Sign-Off
+> **Step 1:** Data Analyst runs the validation and applies Analyst Sign-Off  
+> **Step 2:** Manager reviews the analyst-signed results and applies Manager Sign-Off  
+> **Step 3:** Director reviews all signed results, provides Director Approval, and archives the engagement
 
-The system enforces a structured review workflow that mirrors the firm's quality control requirements:
+This workflow is enforced at every step — the system will not allow sign-offs to be applied out of sequence or by the wrong role. Once an engagement is archived, it becomes read-only and all results and sign-offs are permanently preserved.
 
-1. A **Data Analyst** runs the validation and adds an analyst sign-off
-2. A **Manager** reviews the analyst's results and adds a manager sign-off
-3. A **Director** reviews the completed engagement and provides final approval
-4. Only after all sign-offs are in place can the engagement be archived
+### 4.5 Live Reference Tools Built Into the System
 
-This workflow is enforced by the system — it is not possible to skip steps or sign off at the wrong level. This provides the same quality assurance structure as the firm's other audit tools.
+The system provides two live reference integrations that give auditors access to critical external resources without leaving the platform.
 
-### 4.5 Export-Ready Evidence
+#### DEETYAPAC / VALPAC Help (heda.co.za)
 
-For every validation run, the system can produce:
+The DEETYAPAC Help module embeds live access to the full HEMIS Data Element Dictionary and audit directives hosted at `www.heda.co.za`. When an auditor needs to check what a specific data element means, or what the directive says about a particular field, the reference is immediately available within the system — always showing the current live version. If DHET or HEDA updates the DEETYAPAC content, the system automatically reflects those changes because it fetches the content live from the source each time it is accessed.
 
-- **Excel exports** with formatted results sheets, exception details, and metadata
-- **CSV exports** for further analysis
-- **SQL exports** of the exact query that was executed (useful for documentation and peer review)
-- **R script exports** for statistical validation workflows where required
+#### SAQA Qualification Register (allqs.saqa.org.za)
 
-These exports serve as the audit evidence that is filed in the engagement file alongside the sign-off records.
+For engagements involving clinical training programmes and other regulated qualifications, the system provides live access to the SAQA qualification register. Auditors can verify, directly within the system, whether a qualification is currently registered on the NQF, its NQF level and sub-framework, minimum credits, the originating institution, and all critical registration dates — Registration Start Date, Registration End Date, Last Date for Enrolment, and Last Date for Achievement.
 
-### 4.6 Faster Engagement Turnaround
+The SAQA module includes a built-in four-step interactive guide that teaches auditors how to interpret the SAQA search interface, read results tables, understand qualification detail fields, and apply the four critical dates in an audit context — with colour-coded visual timelines. The guide is accessible alongside the live SAQA search, so auditors can read the explanation and search simultaneously without switching screens.
 
-Because the system eliminates the time spent writing, debugging, and running scripts, and because results are immediately visible and accessible to all team members, the overall turnaround time for a HEMIS engagement is significantly shorter. The team can focus on **analysing exceptions and forming audit conclusions** rather than on the mechanics of data extraction and validation.
+### 4.6 Export-Ready Audit Evidence
 
----
+For every validation run, the system produces exports that serve directly as audit evidence filed in the engagement file:
 
-## 5. The 67 Audit Rules
+- **Excel (.xlsx)** — formatted results sheets with exception details and run metadata
+- **CSV** — raw data for further analysis or import into other tools
+- **SQL Script** — the exact query that was executed, for documentation and peer review
 
-The system implements **67 audit rules** covering the full scope of a HEMIS data audit. These rules are grouped broadly as follows:
+### 4.7 Faster Engagement Turnaround
 
-### Rules 1–10: Basic Data Integrity
-
-Checks fundamental data quality in the HEMIS tables — missing fields, duplicate codes, invalid reference values, and referential integrity between the core tables (QUAL, CRSE, STUD, CREG).
-
-Examples:
-- **Rule 1**: Qualifications without a qualification type code
-- **Rule 3**: Duplicate qualification codes in the QUAL table
-- **Rule 5**: Students recorded with placeholder student numbers (e.g. "9999999")
-- **Rule 7**: Students linked to qualification codes that do not exist in the QUAL table
-- **Rule 9**: Course registrations for student numbers that do not exist in the STUD table
-
-### Rules 11–20: Student and Course Cross-Validation
-
-Validates consistency between student records and course registration data — ensuring that students are registered for courses that exist, at appropriate levels, with valid credit allocations.
-
-### Rules 21–30: Academic Delivery Validation
-
-Verifies that course delivery, credit allocation, and registration status fields comply with HEMIS directives and the Data Element Dictionary.
-
-### Rules 31–40: Student Progression and Status
-
-Checks student progression records, completion statuses, and re-registration flags against expected patterns defined in the HEMIS directives.
-
-### Rules 41–50: Qualification and NQF Alignment
-
-Validates that qualifications offered by the institution are correctly classified against the NQF — correct level, correct sub-framework (HEQSF, OQSF, GENFETQA), and correct qualification type.
-
-### Rules 51–60: Special Populations
-
-Validates data for special population groups including international students, students with disabilities, and equity reporting fields.
-
-### Rules 61–67: Funding, Census, and Submission Validation
-
-Validates data specifically relevant to the DHET subsidy calculation, census date records, and submission-readiness checks.
-
-Each of the 67 rules follows the same interface pattern — users who know how to operate one rule can operate all of them.
+Because the system eliminates the time spent writing, debugging, and executing scripts, and because results are immediately visible to all team members, the overall turnaround time for a HEMIS engagement is significantly reduced. The team can focus their time on analysing exceptions and forming audit conclusions, rather than on the mechanics of data extraction and validation.
 
 ---
 
-## 6. Live Reference Tools Built Into the System
+## Summary
 
-### 6.1 DEETYAPAC Help — Live HEMIS Reference
+The HEMIS Audit System was built to solve a practical problem: HEMIS data auditing is a specialised, repeatable process that should not depend on the scripting skills of individual team members. By building a purpose-built audit application, the system delivers the same benefits to HEMIS engagements that LEAP delivers to the broader audit practice at SNG Grant Thornton:
 
-The **DEETYAPAC Help module** provides every auditor with live access to the complete HEMIS Data Element Dictionary and audit directives hosted at `www.heda.co.za/Valpac_Help/`.
+| Benefit | How the System Delivers It |
+|---------|---------------------------|
+| **Accessible to all team members** | Anyone can be trained to operate the system — trainees to directors — without technical knowledge |
+| **Persistent engagement records** | All results stored in a database, retrievable at any time, like archived LEAP engagements |
+| **Enforced review workflow** | Analyst → Manager → Director sign-off is built in and cannot be bypassed |
+| **Live reference integration** | DEETYAPAC and SAQA are embedded live in the system; content is always current |
+| **Built-in user guidance** | Interactive guides for SAQA search, date interpretation, and NQF field meaning |
+| **Production-ready exports** | Excel, CSV, and SQL exports serve directly as engagement file evidence |
+| **Full audit trail** | Every system action is logged with user, timestamp, and IP address |
+| **Faster turnaround** | Pre-built analytics covering the full VALPAC and engagement letter scope — no script writing or debugging required |
 
-This means that when an auditor is configuring a rule or reviewing a result and needs to check what a specific data element means, or what the directive says about a particular field, they do not need to open a separate browser, navigate to an external site, or hunt for a PDF. The reference material is embedded directly in the audit system, always showing the **current live version** from the source.
-
-If DHET or HEDA updates the DEETYAPAC content, the system automatically reflects those changes because it fetches the content live each time. Auditors are always working from the most up-to-date reference.
-
-The DEETYAPAC module includes:
-
-- A full navigation sidebar organised into logical groups (Introduction, Data Elements, Directives, Reference, etc.)
-- Direct access to the Base Element Dictionary covering all 110+ HEMIS data elements
-- Audit Directives (February 2008 and April 2009)
-- CESM codes, credit value tables, edit validation rules, and glossary
-- Back/Forward navigation and a Reload button, functioning like a browser within the system
-
-### 6.2 SAQA Search — Live Qualification Verification
-
-For engagements involving clinical training programmes and other regulated qualifications, the system provides **live access to the South African Qualifications Authority (SAQA) qualification register** at `allqs.saqa.org.za`.
-
-This allows auditors to verify, directly from within the system:
-
-- Whether a qualification is currently registered on the NQF
-- The qualification's NQF level, sub-framework, and minimum credits
-- The originating institution
-- Critical registration dates: Registration Start Date, Registration End Date, Last Date for Enrolment, and Last Date for Achievement
-
-#### The SAQA Search Guide
-
-The system includes a built-in **four-step interactive guide** that teaches auditors how to use the SAQA search effectively:
-
-| Step | Content |
-|------|---------|
-| **Step 1 — Search Form** | How to use each search field (Title, ID, NQF Level, Originator, Word Search) with a visual mockup of the SAQA search screen |
-| **Step 2 — Reading Results** | How to interpret the results table (columns, status meanings, how to open a qualification record) |
-| **Step 3 — Qualification Detail** | Field-by-field explanation of every item on the SAQA qualification detail page, including SAQA QUAL ID, NQF Sub-framework, Qualification Type, Registration Status, SAQA Decision Number, and all classification codes |
-| **Step 4 — Dates and Timeline** | Plain-language explanation of the four critical dates with a visual colour-coded timeline and specific audit implications (what to verify, what the dates mean for student enrolment and certification) |
-
-The guide opens as a panel alongside the live SAQA search, so auditors can read the explanation while simultaneously searching and verifying qualifications — without switching between screens or consulting a separate reference document.
+The result is a professional, scalable, and team-friendly audit tool that makes HEMIS data auditing faster, more consistent, and accessible to the full engagement team — entirely aligned with the way SNG Grant Thornton manages quality and risk across its service lines.
 
 ---
 
-## 7. Roles and Access Control
-
-The system uses five roles aligned with the typical SNG Grant Thornton engagement structure:
-
-| Role | Description |
-|------|-------------|
-| **Admin** | Full system control — create and manage users, engagements, and system settings. View audit log. |
-| **Director** | Create and manage engagements, assign users, review and approve results, archive completed engagements. |
-| **Manager** | Review Data Analyst results, add manager-level sign-off, manage team assignments. |
-| **Data Analyst** | Run all 67 audit rule validations, configure rule parameters, save and restore workspaces, prepare results for review. |
-| **Trainee** | View all results and engagement data, download exports — read-only access for learning and observation. |
-
-Users are assigned to specific engagements. A user only has access to the engagements they are assigned to, ensuring data confidentiality between client engagements.
-
-**Security features include:**
-
-- Password policy enforcement (minimum 8 characters, uppercase, lowercase, number, and special character required)
-- Password expiry and forced renewal
-- Account lockout after 5 failed login attempts
-- Password history to prevent reuse
-- Admin-forced password reset capability
-- Full audit log of all user and system actions
-
----
-
-## 8. The Signoff Workflow
-
-Every validation run in the system goes through a structured approval process before the engagement can be closed:
-
-```
-Data Analyst runs validation
-        ↓
-Analyst reviews results and adds ANALYST SIGN-OFF
-        ↓
-Manager reviews analyst-signed results
-        ↓
-Manager adds MANAGER SIGN-OFF
-        ↓
-Director reviews all signed results
-        ↓
-Director APPROVES and ARCHIVES the engagement
-```
-
-This workflow is enforced at every step — the system will not allow sign-offs to be applied out of sequence or by the wrong role. If a sign-off is removed (for example, because an exception requires re-investigation), the engagement returns to the appropriate prior state and a new validation run must be completed.
-
-Once an engagement is archived, it becomes read-only. All results and sign-offs are permanently preserved in the system database.
-
----
-
-## 9. Technology Overview
-
-The system is built on modern, widely supported technology that does not require any proprietary licences beyond what the firm already has:
-
-| Component | Technology |
-|-----------|-----------|
-| Application framework | ASP.NET Core MVC (C#) |
-| Application database | SQLite (engagement data, users, results metadata) |
-| HEMIS data connection | Microsoft SQL Server (client's existing HEMIS database) |
-| Authentication | ASP.NET Identity with role-based access control |
-| Frontend | HTML5, CSS3, Vanilla JavaScript |
-| Exports | Excel (.xlsx), CSV, SQL script, R Script |
-| Deployment | Windows Server / IIS |
-
-The system connects to the institution's existing SQL Server database — it does not require any changes to the client's HEMIS environment. All validation queries are **read-only**; the system never writes to or modifies the client's database.
-
----
-
-## 10. Summary
-
-The HEMIS Audit System was built to solve a practical problem: HEMIS data auditing is a specialised, repeatable process that should not depend on the technical scripting skills of individual team members.
-
-By building a purpose-built audit application — rather than relying on SQL scripts, Python programs, or Jupyter notebooks — the system brings the same benefits that LEAP brings to the broader audit practice:
-
-- **Anyone on the team can use it** after brief training, from trainees to directors
-- **Results are stored in a database** and are always accessible, regardless of who ran them or when — archived engagements remain available exactly as they do in LEAP
-- **The workflow is enforced** — analyst preparation, manager review, and director approval are built into the system and cannot be bypassed
-- **Reference tools are built in and live** — auditors have direct access to DEETYAPAC and the SAQA register without leaving the system, and content is always current because it is fetched live from the source
-- **Guides are built in** — the system teaches users how to use reference tools effectively, including how to read SAQA qualification records, interpret critical NQF dates, and understand what each field on a qualification detail page means
-- **Exports are production-ready** — Excel, CSV, SQL, and R script outputs serve directly as audit evidence and can be filed in the engagement file
-- **The audit log provides full traceability** — every action in the system is recorded with the user, timestamp, and IP address, supporting both quality review and regulatory compliance
-
-The result is a professional, scalable, and team-friendly audit tool that makes HEMIS auditing faster, more consistent, and accessible to the full engagement team — aligned with the way SNG Grant Thornton manages quality and risk across all its service lines.
-
----
-
-*Document prepared by Mamishi Madire | SNG Grant Thornton | June 2026*
+*Mamishi Madire &nbsp;|&nbsp; SNG Grant Thornton &nbsp;|&nbsp; Data Analytics — HEMIS Assurance &nbsp;|&nbsp; June 2026*
