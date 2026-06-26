@@ -167,218 +167,187 @@ Because the system eliminates the time spent writing, debugging, and executing s
 
 ---
 
-## 5. Technical Architecture
+## 5. How the System Is Built — A Plain-English Guide
 
-This section documents the internal structure of the system — the components that were built, what each one does, and how they work together. This information is intended for developers, technical reviewers, or team members who need to understand, maintain, or extend the system.
+This section explains the internal building blocks of the system. It is written so that anyone — including team members with no coding background — can understand what each part is, what it does, and why it matters.
 
-### 5.1 Overview of the Application Structure
+Think of the system the same way you would think about a large office building. The building has different floors and departments, each with a specific job. The sections below explain each "department" of the system.
 
-The system is built on **ASP.NET Core MVC**, following the standard Model-View-Controller pattern. The application is organised into the following layers:
+---
+
+### 5.1 The Big Picture
+
+When you click a button or open a page in the system, the following happens — in order, every time:
 
 ```
-HemisAudit/
-├── Controllers/        Request handling — one controller per feature or rule
-├── Models/             Core data entities stored in the database
-├── ViewModels/         Data transfer objects shaped for each view
-├── Views/              Razor HTML templates — one folder per controller
-├── Services/           Business logic and database operations
-├── Helpers/            Shared utility classes and static lookups
-├── Data/               Database context, migrations, and bootstrapper
-└── wwwroot/            Static assets — CSS, JavaScript, uploads
+You (the user)
+    → click something in the browser
+        → the Controller receives your request
+            → the Controller asks a Service to do the work
+                → the Service reads or saves data to the Database
+                    → the Controller takes the result
+                        → the View displays it to you as a page
 ```
 
----
-
-### 5.2 Controllers
-
-Controllers receive HTTP requests, coordinate with services, and return views or JSON responses. There is one controller per major feature area and one controller per audit rule.
-
-#### Core Feature Controllers
-
-| Controller | Purpose |
-|-----------|---------|
-| **AccountController** | Authentication — login, logout, forgot password, reset password, password expiry enforcement, forced renewal flow |
-| **AdminController** | System administration — create and manage users and engagements, assign users to engagements, approve/archive/delete engagements, view audit log, unlock accounts, force password resets |
-| **DashboardController** | Portfolio home — displays all engagements assigned to the current user, rule outcome metrics, pending approvals, favourite engagements, and industry breakdown |
-| **MessagesController** | Internal messaging — send messages, reply to threads, edit/delete messages, file attachments, AJAX polling for real-time unread count updates |
-| **ProfileController** | User profile — edit personal details (name, phone, department, address, employee code), upload profile picture, change password |
-| **DirectivesController** | DEETYAPAC Help module — serves the embedded help shell, proxies HTML content from `heda.co.za/Valpac_Help/`, and provides the sitemap navigation JSON |
-| **SaqaController** | SAQA Search module — serves the full-screen SAQA qualification search page with the built-in interactive guide |
-| **ValidationOperationsController** | Background job coordination — manages long-running validation operations with progress polling so the browser does not time out during large data runs |
-
-#### Audit Rule Controllers (Rule10Controller through Rule67Controller)
-
-There are **58 rule controllers**, one for each audit rule or rule group. Every rule controller follows an identical action pattern:
-
-| Action | Purpose |
-|--------|---------|
-| `Index` | Load the rule workspace — either a fresh configuration form or the saved workspace state for the selected engagement |
-| `GetWorkspaceState` | Return the current saved workspace as JSON (called on page load) |
-| `GetDatabases` | Return the list of available databases on the specified SQL Server |
-| `GetTables` | Return the list of tables in the selected database |
-| `GetColumns` | Return the list of columns in the selected table |
-| `VerifyTables` | Test that the configured tables exist and contain data before running |
-| `RunValidation` | Execute the audit analytic against the client's HEMIS database and return results |
-| `SaveWorkspace` | Persist the current configuration and results to the system database |
-| `SignOffWorkspace` / `RemoveWorkspaceSignoff` | Apply or retract the current user's sign-off at the workspace level |
-| `AddSignoff` / `RemoveSignoff` | Apply or retract sign-off from the completed run review screen |
-| `BeginWorkspaceEdit` | Unlock a signed-off workspace for re-validation |
-| `Run` | Display the read-only review of a completed, saved run |
-| `GenerateSql` | Return the SQL query script for the configured rule as downloadable text |
-| `GenerateRScript` | Return an R statistical script for the rule |
-| `DownloadExcel` / `DownloadCsv` / `DownloadSql` | Export current workspace results |
-| `DownloadSavedExcel` / `DownloadSavedCsv` / `DownloadSavedSql` | Export from a saved completed run |
-
-This consistent pattern means any developer familiar with one rule controller immediately understands all of them.
+There are five main building blocks: **Views**, **Controllers**, **Services**, **Models**, and **Helpers**. Each one has one job and does only that job.
 
 ---
 
-### 5.3 Models
+### 5.2 Views — What You See
 
-Models represent the core data entities stored in the **SQLite application database**. They are defined in `Models/ApplicationModels.cs`.
+**Simple explanation:** A View is the page you see on screen. It is the HTML — the buttons, tables, forms, and text that appear in your browser.
 
-| Model | Purpose | Key Fields |
-|-------|---------|-----------|
-| **ApplicationUser** | Extended Identity user account | `FirstName`, `LastName`, `EmployeeCode`, `Department`, `Gender`, `OfficeAddress`, `IsActive`, `ProfilePicturePath`, `PasswordSetDate`, `PasswordChangedAt`, `PasswordHistory` |
-| **Client** | An engagement / institution being audited | `Name`, `FiscalYear`, `InstitutionType`, `Description`, `Status` (Pending / Active / Closed), `IsActive`, `CreatedAt`, `CreatedByUserId` |
-| **ClientUser** | Many-to-many link between users and engagements | `ClientId`, `UserId`, `EngagementRole` (DataAnalyst / Manager / Director / Trainee), `AssignedAt`, `AssignedByUserId`, `IsActive` |
-| **ValidationRun** | A saved result of an audit analytic execution | `ClientId`, `RuleNumber`, `RuleName`, `HemisServer`, `HemisDatabase`, `TotalValidated`, `PassCount`, `FailCount`, `ExceptionRate`, `Status`, `ExceptionsJson`, `ResultsJson`, `RunAt`, `RunByUserId`, `IsCurrent` |
-| **AuditLog** | A record of every significant system action | `Timestamp`, `UserId`, `UserName`, `Action`, `Details`, `IpAddress` |
+Every page in the system has a View. The View's only job is to display information. It does not calculate anything, does not touch the database, and does not make decisions. It simply shows what it has been given.
 
-**Key database relationships:**
-- A `Client` has many `ClientUsers` (cascade delete) and many `ValidationRuns` (cascade delete)
-- A `ApplicationUser` has many `ClientUsers` (restrict delete — a user with engagement assignments cannot be deleted)
-- `ValidationRun.IsCurrent` flags the most recent run per rule per engagement — historical runs are preserved but not shown by default
+**Examples of Views in this system:**
 
----
+| Page you visit | What the View shows |
+|---------------|---------------------|
+| Dashboard | Your engagement cards, rule outcome summary, and metrics |
+| Rule workspace | The configuration form, run button, and results table |
+| Messages | Your inbox, the active conversation thread, and the reply box |
+| SAQA Search | The full-screen SAQA website and the Search Guide panel |
+| DEETYAPAC Help | The sidebar navigation and the proxied help content |
+| Admin — Users | The list of all system users and their status |
 
-### 5.4 ViewModels
+Every rule (Rule 10 through Rule 67) has two Views:
+- One for **running** the validation (the workspace with the configuration form)
+- One for **reviewing** a completed run (read-only, for sign-off and download)
 
-ViewModels are data transfer objects that shape the data passed from a controller to a view. They are defined in `ViewModels/ApplicationViewModels.cs` and individual `ViewModels/Rule*ViewModels.cs` files.
-
-#### Core ViewModels
-
-| ViewModel | Used By | Purpose |
-|-----------|---------|---------|
-| **LoginViewModel** | Account/Login | Email, Password, RememberMe |
-| **ChangePasswordViewModel** | Profile, Account | CurrentPassword, NewPassword, ConfirmPassword with policy validation |
-| **RenewPasswordViewModel** | Account/PasswordExpired | Handles both the in-flow and standalone password renewal paths |
-| **UserListViewModel** | Admin/Users | Flattened user data for the user table (name, role, status, last login, locked-out state) |
-| **CreateUserViewModel** | Admin/CreateUser | FirstName, LastName, Email, EmployeeCode, Role |
-| **EditUserViewModel** | Admin/EditUser | Full user profile fields plus current profile picture path |
-| **ClientDetailViewModel** | Admin/ClientDetail | Client summary, assigned users list, validation runs, archive eligibility flags |
-| **DashboardViewModel** | Dashboard/Index | Portfolio engagement cards, rule outcome metrics, industry breakdown, pending approval queue |
-| **MessagePageViewModel** | Messages/Index | Inbox thread list, active thread, compose modal state |
-| **MessageSendViewModel** | Messages/Send | Subject, Body, RecipientIds, ClientId, file attachments |
-| **MessageThreadViewModel** | Messages/Index | ThreadId, Subject, ordered Messages, Participants, read status |
-
-#### Rule-Specific ViewModels
-
-Each rule has two or three dedicated ViewModels:
-
-| ViewModel Pattern | Purpose |
-|------------------|---------|
-| `Rule*ValidationRequest` | The POST payload sent when running a validation — server, database, table/column mappings, and any rule-specific parameters |
-| `Rule*ValidationSummary` | The result returned after a run — pass/fail counts, exception rows, metadata, signoff state |
-| `Rule*WorkspaceStateViewModel` | The full saved state of a workspace — configuration plus latest run, used to restore the UI on page load |
-| `Rule*RunReviewViewModel` | Read-only view of a completed run for sign-off and download — excludes editable configuration fields |
+There is also a shared master layout — think of it as the frame around every page — that provides the sidebar, the top navigation bar, the theme, and the session security check that appear on every screen.
 
 ---
 
-### 5.5 Services
+### 5.3 Controllers — The Traffic Directors
 
-Services contain the business logic and data access operations. Controllers are kept thin — they handle the HTTP layer only and delegate all processing to services. Services are registered with the ASP.NET Core dependency injection container and injected into controllers via their constructors.
+**Simple explanation:** A Controller is like a receptionist. When you click a button or submit a form, the Controller receives your request, figures out what you need, asks the right Service to handle it, and then sends the result back to the correct View to display to you.
 
-| Service | Interface | Purpose |
-|---------|-----------|---------|
-| **Rule*Service** | `IRule*Service` | One service per rule — contains the SQL generation logic, validation execution, result parsing, and Excel/CSV/SQL export logic for that rule |
-| **SystemDatabaseService** | `ISystemDatabaseService` | All read/write operations on the SQLite application database — engagements, users, validation runs, messages, audit log, dashboard metrics |
-| **AuditLogService** | `IAuditLogService` | Writes entries to the audit log table; called from controllers after every significant action |
-| **ExportService** | `IExportService` | Generates Excel (.xlsx) and CSV files from validation result data; used by all rule controllers |
-| **PasswordPolicyService** | `IPasswordPolicyService` | Enforces password complexity rules, expiry checks, history tracking, and renewal enforcement on login |
-| **ValidationOperationService** | `IValidationOperationService` | Manages background validation jobs — queues long-running operations, tracks progress, and makes results available for polling |
-| **Rule*RScriptGenerator** | _(static helpers)_ | Generates R statistical script exports for each rule, mirroring the SQL logic in the R language |
+The Controller does not do the actual work itself — it just directs traffic. This keeps everything organised and easy to maintain.
 
----
+**Examples of Controllers in this system:**
 
-### 5.6 Helpers
+| Controller | What it handles |
+|-----------|----------------|
+| **Account** | Login, logout, forgot password, reset password, password expiry |
+| **Admin** | Creating users and engagements, assigning team members, approving and archiving engagements, viewing the audit log |
+| **Dashboard** | Loading your portfolio of engagements and their current status |
+| **Messages** | Sending messages, replying, editing, deleting, and checking for new messages |
+| **Profile** | Editing your personal details and uploading your profile picture |
+| **Directives** | Serving the DEETYAPAC help page and fetching content from heda.co.za |
+| **Saqa** | Serving the SAQA search page |
+| **Rule 10 through Rule 67** | One Controller per audit rule — handles connecting to the database, running the validation, saving results, and managing sign-offs and exports |
 
-Helpers are static utility classes that provide shared logic used across multiple controllers or services.
-
-| Helper | Purpose |
-|--------|---------|
-| **IntegrityRuleCatalog** | A static lookup table of all 67 audit rules — rule number, name, description, and default table/column expectations. Used to populate rule metadata throughout the system without duplication. |
-| **RuleRouteHelper** | Maps rule numbers to their controller routes and action names. Used to generate correct navigation links (Previous Rule / Next Rule) on every rule workspace page. |
-| **ModuleSequenceNavigationHelper** | Computes the previous and next rule in the sequence for a given rule number, enabling breadcrumb navigation across the full 67-rule set. |
-| **ValidationRunAccessPolicy** | Determines whether a given user has permission to view, run, sign off, or download a validation run — based on their role and assignment to the engagement. Centralises access control logic so it does not need to be repeated in every controller. |
-| **AvatarHelper** | Resolves the correct avatar image source for a user — returns the profile picture path if one has been uploaded, otherwise returns a generated initials-based avatar URL. |
+When you click "Run Validation" on a rule page, the Rule Controller receives that request, calls the Rule Service to execute the check, and then sends the results back to the View to display in the results table.
 
 ---
 
-### 5.7 Data Layer
+### 5.4 Services — Where the Work Gets Done
 
-| Component | Purpose |
-|-----------|---------|
-| **ApplicationDbContext** | Entity Framework Core `DbContext` — defines the SQLite database schema through `DbSet<T>` properties for `Client`, `ClientUser`, `ValidationRun`, and `AuditLog`, plus the ASP.NET Identity tables. Configures composite keys, unique indexes, and cascade delete rules. |
-| **SystemDatabaseBootstrapper** | Runs on application startup — applies any pending EF Core migrations, creates the SQLite database if it does not exist, and seeds the initial Admin user account if no users are present. |
-| **DbInitializer** | Seeds reference data and default configuration values required for the application to function on first run. |
+**Simple explanation:** A Service is where the actual work happens. It contains the logic — the instructions that check the data, save results, generate exports, send messages, and enforce rules. The Controller tells the Service what to do; the Service does it.
 
-The system uses **two databases**:
+Think of a Service as a specialist. The Controller says "run Rule 34 for this engagement." The Rule 34 Service knows exactly how to connect to the database, build the correct query, run it, count the passes and failures, and format the result for storage.
 
-| Database | Technology | Stores |
-|----------|-----------|--------|
-| Application DB | SQLite (local file) | Users, roles, engagements, user-engagement assignments, validation run metadata, audit log, messages |
-| HEMIS Data DB | SQL Server (client's existing server) | The client's HEMIS student and staff data — the system connects to this read-only to execute validation queries |
+**Key Services in this system:**
 
-The system **never writes to the client's SQL Server database**. All validation queries are read-only `SELECT` statements. The client's data is never modified.
+| Service | What it does |
+|---------|-------------|
+| **Rule Services** (one per rule) | Contains all the logic for a specific audit rule — builds the validation query, runs it against the client's HEMIS database, counts passes and failures, identifies exceptions, and prepares results for saving and export |
+| **System Database Service** | Handles all reading and writing to the system's own database — saving engagement records, storing validation results, retrieving messages, recording sign-offs, and supplying dashboard data |
+| **Audit Log Service** | Every time a significant action happens (a login, a validation run, a sign-off, a download), this service writes a record of it to the audit log — who did it, when, and from which IP address |
+| **Export Service** | Generates the Excel (.xlsx) and CSV files when an auditor clicks Download — formats the results into properly structured spreadsheets ready to be filed as audit evidence |
+| **Password Policy Service** | Checks that passwords meet the required complexity rules, tracks password history to prevent reuse, monitors expiry dates, and forces renewal when a password has expired |
+| **Validation Operation Service** | Manages long-running validations — when a check takes more than a few seconds on a large dataset, this service runs it in the background and lets the browser check on progress without timing out |
 
 ---
 
-### 5.8 Views
+### 5.5 Models — The Data Definitions
 
-Views are Razor `.cshtml` templates. There is one folder per controller, plus a `Shared` folder containing the layout and partial views used across the application.
+**Simple explanation:** A Model is the definition of a piece of information that the system stores. It tells the system exactly what fields a record has and what type of information each field holds — like a form template that defines which boxes exist before anyone fills them in.
 
-| View Folder | Key Views |
+Every record saved in the system's database follows a Model. Without Models, the database would not know what to store or how to store it.
+
+**The key Models in this system:**
+
+| Model | What it represents | Why it matters |
+|-------|-------------------|----------------|
+| **User** | A person who has an account in the system | Stores their name, email, role, department, password history, profile picture, and whether their account is active |
+| **Client** (Engagement) | A higher education institution being audited in a specific year | Stores the institution name, fiscal year, institution type, approval status, and who created it |
+| **ClientUser** | The link between a user and an engagement | Records which users are assigned to which engagements and what role each person has on that engagement |
+| **ValidationRun** | The result of running an audit analytic | Stores the server and database that were used, the total records checked, how many passed and failed, the exception rate, and the full results data |
+| **AuditLog** | A record of a system action | Stores the timestamp, the user who performed the action, what the action was, and the IP address it came from |
+
+**A practical example:** When you save a validation result after running Rule 34, the system creates a new `ValidationRun` record. It fills in your user ID, the engagement ID, the rule number, the pass count, the fail count, and stores the full exception rows. Later, when you or your manager opens the engagement to review the results, the system reads that `ValidationRun` record and displays it on screen.
+
+---
+
+### 5.6 Helpers — Shared Tools
+
+**Simple explanation:** Helpers are small shared tools that multiple parts of the system use. Rather than writing the same logic in many different places, it is written once in a Helper and reused wherever it is needed.
+
+Think of a Helper like a reference sheet pinned to the wall. Anyone who needs that information can look it up without recalculating it themselves.
+
+**Key Helpers in this system:**
+
+| Helper | What it does | Why it is useful |
+|--------|-------------|-----------------|
+| **IntegrityRuleCatalog** | A complete list of all 67 audit rules — their numbers, names, and descriptions | Every part of the system that needs to display rule information reads from this one central list, so the rule names and descriptions are consistent everywhere |
+| **RuleRouteHelper** | Knows the web address (URL) for every rule's page | Used to generate the "Previous Rule" and "Next Rule" navigation links on every rule workspace |
+| **ModuleSequenceNavigationHelper** | Works out which rule comes before and after the current one | Powers the breadcrumb navigation that lets auditors move between rules without going back to the main menu |
+| **ValidationRunAccessPolicy** | Checks whether a user is allowed to perform a specific action on a validation run | Ensures that only the correct role can sign off, view, or download a result — checked once here rather than separately in every Controller |
+| **AvatarHelper** | Decides what profile picture to show for a user | If the user has uploaded a photo, shows the photo; if not, generates a coloured circle with their initials |
+
+---
+
+### 5.7 The Database — Where Everything Is Stored
+
+The system uses two separate databases, each with a different job:
+
+**Database 1 — The System Database (the system's own records)**
+
+This is the system's internal storage. It holds:
+- All user accounts and their details
+- All engagements (clients) and their status
+- Who is assigned to which engagement and in what role
+- All saved validation results (pass/fail counts, exception data, sign-off records)
+- All audit log entries
+- All messages and attachments
+
+This database belongs entirely to SNG Grant Thornton. It lives on the firm's own infrastructure and is managed by the system.
+
+**Database 2 — The Client's HEMIS Database (read-only)**
+
+When an auditor runs a validation, the system connects to the institution's own SQL Server database — the database that contains the HEMIS student and staff data. The system reads from this database to perform the checks.
+
+**The system never writes to the client's database.** It only reads. The client's data is never changed, deleted, or modified in any way. This is important for audit independence.
+
+---
+
+### 5.8 Static Assets — Appearance and Interactivity
+
+These are the files that control how the system looks and behaves in the browser:
+
+| Asset | What it does |
+|-------|-------------|
+| **CSS stylesheet** | Controls the colours, fonts, layout, spacing, and visual design of every page — the dark sidebar, the card layouts, the tables, the toolbar buttons |
+| **JavaScript files** | Makes the pages interactive — dropdown menus that load database tables automatically, progress bars during a validation run, sign-off confirmation dialogs, and the real-time unread message count badge |
+| **Uploaded files** | Profile pictures and message attachments uploaded by users are stored here on the server |
+
+---
+
+### 5.9 Technology Stack — What Was Used to Build It
+
+| What it does | Tool used |
 |-------------|----------|
-| `Views/Shared/` | `_Layout.cshtml` — the master layout; defines the sidebar navigation, topnav bar, theme switching, session guard, and page-content wrapper used by every page |
-| `Views/Account/` | Login, ForgotPassword, ResetPassword, ChangePassword, PasswordExpired |
-| `Views/Admin/` | Clients (engagement list), ClientDetail, CreateClient, Users, CreateUser, EditUser, AuditLog |
-| `Views/Dashboard/` | Index — portfolio view with engagement cards and metrics |
-| `Views/Messages/` | Index — unified inbox, compose, and thread view |
-| `Views/Profile/` | Edit — profile details and profile picture upload |
-| `Views/Directives/` | Index — DEETYAPAC browser shell with sidebar navigation and proxied content frame |
-| `Views/Saqa/` | Index — full-screen SAQA iframe with toolbar, live bar, fallback message, and four-step interactive guide panel |
-| `Views/Rule10/` through `Views/Rule67/` | Each rule has two views: `Index.cshtml` (the interactive workspace) and `Run.cshtml` (the read-only completed run review for sign-off and download) |
-
----
-
-### 5.9 Static Assets (wwwroot)
-
-| Path | Content |
-|------|---------|
-| `wwwroot/css/site.css` | The complete application stylesheet — layout, sidebar, topnav, cards, tables, rule workspace UI, messaging, modals, dark/light theme variables |
-| `wwwroot/js/rule-workspace-ui.js` | Shared JavaScript for the rule workspace — database/table/column discovery dropdowns, run progress handling, signoff interactions, and export triggers used by all 67 rule pages |
-| `wwwroot/uploads/profiles/` | User profile picture files — JPG/PNG/GIF/WEBP, max 5 MB, validated by MIME type and file signature |
-| `wwwroot/uploads/messages/` | Message attachment files — any format, max 15 MB per file, classified by MIME type for display |
-
----
-
-### 5.10 Technology Stack Summary
-
-| Layer | Technology |
-|-------|-----------|
-| Application framework | ASP.NET Core MVC (C#) |
-| ORM / data access | Entity Framework Core |
-| Application database | SQLite |
-| Client HEMIS database | Microsoft SQL Server (read-only connection) |
-| Authentication | ASP.NET Core Identity |
-| Password policy | Custom `IPasswordPolicyService` with history tracking |
-| Frontend | HTML5, CSS3, Vanilla JavaScript |
-| HTTP compression | Brotli + Gzip response compression |
-| File exports | EPPlus / ClosedXML for Excel; `System.Text` for CSV and SQL |
-| Email | SMTP (password reset links) |
-| External HTTP | `IHttpClientFactory` (DEETYAPAC proxy) |
-| Deployment target | Windows Server / IIS |
+| The application framework — the foundation everything runs on | ASP.NET Core MVC (C# programming language) |
+| Reading and writing to the system's own database | Entity Framework Core (translates C# into database queries automatically) |
+| The system's own database | SQLite (a lightweight, file-based database — no separate database server needed) |
+| The client's HEMIS data | Microsoft SQL Server (the client's existing database server) |
+| User login and security | ASP.NET Core Identity (handles passwords, sessions, and roles) |
+| The pages users see | HTML, CSS, JavaScript |
+| Generating Excel files | EPPlus / ClosedXML |
+| Sending password reset emails | SMTP email |
+| Fetching DEETYAPAC content from heda.co.za | ASP.NET HTTP Client |
+| Running on the server | Windows Server / IIS (standard firm infrastructure) |
 
 ---
 
