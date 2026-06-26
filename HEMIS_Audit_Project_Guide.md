@@ -189,7 +189,7 @@ You (the user)
                         → the View displays it to you as a page
 ```
 
-There are five main building blocks: **Views**, **Controllers**, **Services**, **Models**, and **Helpers**. Each one has one job and does only that job.
+There are eight main building blocks: **Views**, **Controllers**, **Services**, **Models**, **ViewModels**, **Helpers**, **Data**, and **Scripts**. Each one has one job and does only that job.
 
 ---
 
@@ -280,7 +280,40 @@ Every record saved in the system's database follows a Model. Without Models, the
 
 ---
 
-### 5.6 Helpers — Shared Tools
+### 5.6 ViewModels — The Data Packaging Layer
+
+**Simple explanation:** A ViewModel is a container that carries exactly the right information from the Controller to the View — no more, no less. It packages data into a neat bundle shaped specifically for the page that needs to display it.
+
+Think of it like a pre-filled tray in a restaurant kitchen. The kitchen (Service) has prepared all the food. The waiter (Controller) does not hand the customer the entire contents of the kitchen — they pick up a tray (ViewModel) that has exactly what that customer ordered, arranged neatly, and carry it to the table (View).
+
+**Why ViewModels are needed:**
+
+The system's database stores raw data — rows and columns. But a page often needs to show a combination of information from several different places at once. For example, the Dashboard page needs to show:
+- The list of engagements you are assigned to
+- The pass/fail outcome of the latest run for each rule on each engagement
+- The count of pending approvals
+- Industry breakdown metrics
+
+None of these come from a single place in the database. The ViewModel is what the Controller uses to gather all of that information together, package it neatly, and hand it to the Dashboard View to display.
+
+**Key ViewModels in this system:**
+
+| ViewModel | What page it serves | What it packages |
+|-----------|-------------------|-----------------|
+| **DashboardViewModel** | The portfolio dashboard | All engagement cards, rule outcome summary per engagement, pending approval queue, and industry metrics |
+| **ClientDetailViewModel** | The engagement detail page | The engagement's details, the list of assigned users and their roles, all validation runs and their sign-off status, and whether the engagement is eligible to be archived |
+| **UserListViewModel** | The admin Users page | A simplified, flat view of each user — name, role, last login date, whether their account is active, and whether they are currently locked out |
+| **MessagePageViewModel** | The Messages inbox | The full list of inbox threads, the messages in the currently open thread, and the compose form state |
+| **Rule WorkspaceStateViewModel** | Each rule's workspace page | The saved configuration (which server, database, and tables were used last time), the latest run result, and the current sign-off status — so the page restores exactly where the auditor left off |
+| **Rule RunReviewViewModel** | The completed run review page | A read-only snapshot of the run — the results table, exception details, who signed off and when — used for manager and director review |
+| **LoginViewModel** | The login page | Just three fields: email address, password, and whether to stay logged in |
+| **ChangePasswordViewModel** | The change password page | The current password, the new password, and the confirmation — plus the password policy rules to display |
+
+**A practical example:** When a manager opens the engagement detail page, the Controller asks the Service to load the engagement data. The Service returns everything it found. The Controller then fills a `ClientDetailViewModel` — it picks out the engagement name, the assigned users, the latest validation run per rule, the archive eligibility flag — and hands that ViewModel to the View. The View only looks at what is in the ViewModel; it never touches the database directly. This keeps the page fast, clean, and predictable.
+
+---
+
+### 5.7 Helpers — Shared Tools
 
 **Simple explanation:** Helpers are small shared tools that multiple parts of the system use. Rather than writing the same logic in many different places, it is written once in a Helper and reused wherever it is needed.
 
@@ -298,7 +331,7 @@ Think of a Helper like a reference sheet pinned to the wall. Anyone who needs th
 
 ---
 
-### 5.7 The Database — Where Everything Is Stored
+### 5.8 The Database — Where Everything Is Stored
 
 The system uses two separate databases, each with a different job:
 
@@ -322,19 +355,72 @@ When an auditor runs a validation, the system connects to the institution's own 
 
 ---
 
-### 5.8 Static Assets — Appearance and Interactivity
+### 5.9 Data — The Database Setup and Startup Layer
 
-These are the files that control how the system looks and behaves in the browser:
+**Simple explanation:** The Data layer is the part of the system that sets up and manages the connection between the application and its database. Think of it as the staff that lays out the filing cabinets before the office opens — it makes sure the storage is ready, the right shelves exist, and the first essential records are in place before anyone starts working.
 
-| Asset | What it does |
-|-------|-------------|
-| **CSS stylesheet** | Controls the colours, fonts, layout, spacing, and visual design of every page — the dark sidebar, the card layouts, the tables, the toolbar buttons |
-| **JavaScript files** | Makes the pages interactive — dropdown menus that load database tables automatically, progress bars during a validation run, sign-off confirmation dialogs, and the real-time unread message count badge |
-| **Uploaded files** | Profile pictures and message attachments uploaded by users are stored here on the server |
+This layer runs automatically when the system starts and requires no input from the user. It works silently in the background.
+
+**The three components of the Data layer:**
+
+| Component | What it does | Practical meaning |
+|-----------|-------------|------------------|
+| **ApplicationDbContext** | Defines the structure of the system's database — which tables exist, what columns they have, and how they relate to each other | This is the blueprint. It tells the database: "there is a table for Engagements, a table for Users, a table for ValidationRuns, a table for AuditLog entries" — and it defines exactly what information each table stores |
+| **SystemDatabaseBootstrapper** | Runs every time the application starts — checks that the database exists, applies any structural changes (new tables or columns added by developers), and creates the database file from scratch if it does not yet exist | This is the startup check. Before any user can log in, it silently verifies that the database is ready. If the system is being installed for the first time, it builds the entire database automatically |
+| **DbInitializer** | Seeds the database with the first essential records — for example, creating the initial Admin user account so someone can log in and set up the system | This is the first-day setup. On a brand-new installation, after the database is created, this component inserts the default Admin account so the system is immediately usable |
+
+**A practical example:** When the system is deployed for the first time on a new server, nobody has touched the database yet. The moment the application starts:
+1. `SystemDatabaseBootstrapper` detects that no database file exists and creates one from scratch, building all the tables
+2. `DbInitializer` inserts the default Admin user account into the Users table
+3. The Admin can now log in, create other users, and set up the first engagement
+
+After that first run, the Data layer continues to run on every startup — but since the database already exists and is up to date, it simply confirms everything is in order and steps aside.
 
 ---
 
-### 5.9 Technology Stack — What Was Used to Build It
+### 5.10 Scripts and Styling — How the Pages Look and Behave
+
+**Simple explanation:** Once the server has prepared a page and sent it to your browser, scripts and styling take over. The CSS controls how everything looks — colours, layout, spacing, fonts. The JavaScript makes the page interactive — it responds to your clicks, loads data without refreshing the page, shows progress bars, and updates parts of the screen dynamically.
+
+Without CSS and JavaScript, every page would be plain black text on a white background with no interactivity. They are what turn the server's output into a polished, usable application.
+
+**CSS — The Visual Design**
+
+The entire visual design of the system is controlled by a single stylesheet file (`site.css`). This one file defines:
+
+| What it controls | Examples |
+|-----------------|---------|
+| **Layout** | The two-column layout of sidebar + main content area; the flex-based full-height rule workspace |
+| **Sidebar** | The dark navy colour, the navigation item hover effects, the active item highlight, the collapsible width |
+| **Topnav** | The top bar height, the back/forward buttons, the user avatar and name placement |
+| **Cards and tables** | The engagement cards on the dashboard, the results tables in rule workspaces, the exception rows |
+| **Buttons and forms** | The styling of all buttons, input fields, dropdowns, and checkboxes across every page |
+| **Themes** | Light mode and dark mode — toggled by the user with the theme button; the system remembers the preference |
+| **Responsive behaviour** | How the layout adjusts on smaller screens — the sidebar collapses, menus stack vertically |
+| **Special pages** | The full-screen layout for DEETYAPAC and SAQA pages that removes padding so the embedded content fills the entire screen |
+
+**JavaScript — The Interactivity**
+
+JavaScript runs in the browser after the page has loaded. It listens for user actions and responds immediately without needing to reload the page. Key things JavaScript does in this system:
+
+| Behaviour | How it works |
+|-----------|-------------|
+| **Database and table dropdowns on rule pages** | When you select a SQL Server, JavaScript automatically sends a request to the Controller and loads the list of available databases. When you select a database, it loads the tables. When you select a table, it loads the columns. All of this happens instantly, without a page refresh. |
+| **Validation progress bar** | When you click Run Validation on a large dataset, the validation runs in the background. JavaScript polls the server every few seconds and updates the progress bar on screen until the result is ready. |
+| **Sign-off confirmations** | When you click Sign Off or Remove Sign-Off, JavaScript shows a confirmation dialog before submitting — preventing accidental actions. |
+| **Real-time unread message count** | The message badge in the sidebar updates automatically every minute. JavaScript checks the server quietly in the background and updates the number without you needing to refresh. |
+| **SAQA guide panel** | The Search Guide on the SAQA page is powered by JavaScript — it handles the slide-in animation, the tab switching between the four steps, the Previous/Next navigation, and the scroll-to-top behaviour when moving between steps. |
+| **DEETYAPAC navigation** | The entire DEETYAPAC Help module is JavaScript-driven — clicking a topic in the sidebar fetches the content from the server (which fetched it from heda.co.za), injects it into the page, and manages the Back/Forward navigation history. |
+| **Theme switching** | When you click the Light/Dark theme button, JavaScript toggles the theme class on the page and saves your preference to browser storage so it is remembered next time you visit. |
+| **Sidebar resizing** | The sidebar width can be dragged to resize it. JavaScript handles the drag interaction and saves your preferred width to browser storage. |
+
+**Uploaded Files**
+
+When a user uploads a profile picture or attaches a file to a message, the file is saved on the server inside the `wwwroot/uploads/` folder. These files are served directly by the web server when needed — for example, when displaying your profile picture in the top navigation bar.
+
+---
+
+### 5.11 Technology Stack — What Was Used to Build It
 
 | What it does | Tool used |
 |-------------|----------|
