@@ -271,6 +271,20 @@ BEGIN
       CONSTRAINT UQ_ClientFavorites_User_Client UNIQUE (UserID, ClientID)
     );
 END"
+                ,
+                @"
+IF OBJECT_ID(N'dbo.EngagementRuleScope', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.EngagementRuleScope (
+      ScopeID         INT IDENTITY(1,1) PRIMARY KEY,
+      ClientID        INT NOT NULL REFERENCES dbo.Clients(ClientID),
+      RuleNumber      INT NOT NULL,
+      AddedAt         DATETIME NOT NULL DEFAULT GETDATE(),
+      AddedByUserID   INT NOT NULL REFERENCES dbo.Users(UserID),
+      AddedByUserName NVARCHAR(200) NOT NULL DEFAULT '',
+      CONSTRAINT UQ_EngagementRuleScope_Client_Rule UNIQUE (ClientID, RuleNumber)
+    );
+END"
             };
 
             foreach (var ddl in ddlStatements)

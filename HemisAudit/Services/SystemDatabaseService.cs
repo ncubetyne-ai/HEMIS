@@ -59,6 +59,8 @@ namespace HemisAudit.Services
         Task UpdateMessageAsync(int messageId, int threadId, ApplicationUser user, string role, string body);
         Task DeleteMessageAsync(int messageId, int threadId, ApplicationUser user, string role);
         Task MarkThreadReadAsync(int threadId, ApplicationUser user, string role);
+        Task<HashSet<int>> GetEngagementScopeAsync(int clientId);
+        Task SaveEngagementScopeAsync(int clientId, IEnumerable<int> ruleNumbers, ApplicationUser user);
     }
 
     public class SystemDatabaseService : ISystemDatabaseService
@@ -845,6 +847,7 @@ WHERE c.ClientID = @ClientID;";
             }
 
             await reader.DisposeAsync();
+            var scope = await GetEngagementScopeAsync(clientId);
             var validationRuns = await GetValidationRunsForClientAsync(connection, clientId);
             var currentRuns = validationRuns
                 .Where(run => run.IsCurrent)
@@ -853,20 +856,28 @@ WHERE c.ClientID = @ClientID;";
                 .ThenByDescending(run => run.Id)
                 .ToList();
 
-            if (currentRuns.Count == 0)
+            // When a scope is defined, only in-scope rules must be completed before archiving.
+            var runsInScope = scope.Count > 0
+                ? currentRuns.Where(run => scope.Contains(run.RuleNumber)).ToList()
+                : currentRuns;
+
+            if (runsInScope.Count == 0)
             {
+                var noRunsMsg = scope.Count > 0
+                    ? "No current results exist for the in-scope rules. Run the selected validation modules and complete the reviews before archiving."
+                    : "No current results are available yet. Run the validation modules and complete the reviews before archiving.";
                 return new ArchiveEligibilityViewModel
                 {
                     CanArchive = false,
-                    Message = "No current results are available yet. Run the validation modules and complete the reviews before archiving."
+                    Message = noRunsMsg
                 };
             }
 
-            var incompleteCurrentRuns = currentRuns
+            var incompleteCurrentRuns = runsInScope
                 .Where(run => !string.Equals(run.Status, "Reviewed and Completed", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            var latestCurrentRun = currentRuns
+            var latestCurrentRun = runsInScope
                 .OrderByDescending(run => run.RunAt)
                 .ThenByDescending(run => run.Id)
                 .FirstOrDefault();
@@ -877,7 +888,7 @@ WHERE c.ClientID = @ClientID;";
                 CurrentRunId = latestCurrentRun?.Id,
                 CurrentRunRuleNumber = latestCurrentRun?.RuleNumber,
                 Message = canArchive
-                    ? "All current results are reviewed and completed. The engagement is ready to be archived."
+                    ? "All in-scope results are reviewed and completed. The engagement is ready to be archived."
                     : BuildArchiveEligibilityMessage(incompleteCurrentRuns)
             };
         }
@@ -2432,6 +2443,51 @@ LEFT JOIN dbo.UserClientAssignments a
                 return (false, "");
 
             return (!reader.IsDBNull(0) && reader.GetBoolean(0), reader.IsDBNull(1) ? "" : reader.GetString(1));
+        }
+
+        public async Task<HashSet<int>> GetEngagementScopeAsync(int clientId)
+        {
+            await using var connection = await OpenConnectionAsync();
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+SELECT RuleNumber
+FROM dbo.EngagementRuleScope
+WHERE ClientID = @ClientID;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+            var result = new HashSet<int>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                result.Add(reader.GetInt32(0));
+            return result;
+        }
+
+        public async Task SaveEngagementScopeAsync(int clientId, IEnumerable<int> ruleNumbers, ApplicationUser user)
+        {
+            var userId = await EnsureUserMirrorAsync(user, "DataAnalyst");
+            var userName = $"{user.FirstName} {user.LastName}".Trim();
+            var selected = ruleNumbers.Distinct().ToList();
+
+            await using var connection = await OpenConnectionAsync();
+
+            // Remove rules no longer selected
+            await using var del = connection.CreateConfiguredCommand();
+            del.CommandText = "DELETE FROM dbo.EngagementRuleScope WHERE ClientID = @ClientID;";
+            del.Parameters.AddWithValue("@ClientID", clientId);
+            await del.ExecuteNonQueryAsync();
+
+            // Insert newly selected rules
+            foreach (var ruleNumber in selected)
+            {
+                await using var ins = connection.CreateConfiguredCommand();
+                ins.CommandText = @"
+INSERT INTO dbo.EngagementRuleScope (ClientID, RuleNumber, AddedAt, AddedByUserID, AddedByUserName)
+VALUES (@ClientID, @RuleNumber, GETDATE(), @UserID, @UserName);";
+                ins.Parameters.AddWithValue("@ClientID", clientId);
+                ins.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+                ins.Parameters.AddWithValue("@UserID", userId);
+                ins.Parameters.AddWithValue("@UserName", userName);
+                await ins.ExecuteNonQueryAsync();
+            }
         }
     }
 }
