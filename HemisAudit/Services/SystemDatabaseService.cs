@@ -737,6 +737,7 @@ WHERE c.ClientID = @ClientID;";
 
             detail.AssignedUsers = await GetAssignedUsersAsync(connection, clientId);
             detail.ValidationRuns = await GetValidationRunsForClientAsync(connection, clientId);
+            detail.ScopeRuleNumbers = await GetEngagementScopeAsync(clientId);
             return detail;
         }
 

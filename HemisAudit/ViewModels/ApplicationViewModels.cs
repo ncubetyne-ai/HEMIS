@@ -364,6 +364,7 @@ namespace HemisAudit.ViewModels
         public string? ArchiveEligibilityMessage { get; set; }
         public int? CurrentRunId { get; set; }
         public int? CurrentRunRuleNumber { get; set; }
+        public HashSet<int> ScopeRuleNumbers { get; set; } = new();
     }
 
     public class ClientUserRow

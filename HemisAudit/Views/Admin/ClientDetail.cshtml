@@ -232,7 +232,30 @@
             <div class="card" style="padding:18px 20px">
                 @if (canOpenModule)
                 {
-                    <div class="module-card-grid">
+                    var scopeDefined = Model.ScopeRuleNumbers.Count > 0;
+                    var scopeJson = System.Text.Json.JsonSerializer.Serialize(Model.ScopeRuleNumbers);
+                    @if (!Model.IsArchived)
+                    {
+                        <form id="scope-form" asp-action="SaveRuleScope" asp-controller="Admin" method="post" style="display:none">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="clientId" value="@Model.Id" />
+                            <span id="scope-hidden-inputs"></span>
+                        </form>
+                    }
+                    <div class="scope-toolbar" id="scope-toolbar">
+                        <div class="scope-toolbar__info">
+                            <span id="scope-count-label">Loading…</span>
+                        </div>
+                        @if (!Model.IsArchived)
+                        {
+                            <div class="scope-toolbar__actions">
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="scopeSelectAll()">Select All</button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="scopeClearAll()">Clear</button>
+                                <button type="submit" form="scope-form" class="btn btn-primary btn-sm">Save Rule Selection</button>
+                            </div>
+                        }
+                    </div>
+                    <div class="module-card-grid" id="module-card-grid" data-scope="@scopeJson" data-archived="@Model.IsArchived.ToString().ToLower()" data-total-rules="67">
                         @foreach (var integrityRule in IntegrityRuleCatalog.GetRuleNumbers().Where(ruleNumber => ruleNumber >= 1 && ruleNumber <= 10).Select(IntegrityRuleCatalog.Get))
                         {
                             <article class="module-card">
@@ -701,6 +724,19 @@
                         <p>This engagement must be approved before users can access modules.</p>
                     </div>
                 }
+                <style>
+                    .scope-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:#f8fafb;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:14px;flex-wrap:wrap}
+                    .scope-toolbar__info{font-size:.84rem;color:#555;font-weight:500}
+                    .scope-count{font-weight:700;color:#16a34a}
+                    .scope-count--none{color:#888;font-style:italic}
+                    .scope-toolbar__actions{display:flex;gap:8px;flex-wrap:wrap}
+                    .module-card{position:relative;cursor:pointer;transition:box-shadow .15s,border-color .15s,opacity .15s;user-select:none;border:2px solid transparent}
+                    .module-card--selected{border-color:#22c55e!important;box-shadow:0 0 0 3px rgba(34,197,94,.12)!important}
+                    .module-card--outscope{opacity:.38}
+                    .module-card__scope-badge{position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;background:#e5e7eb;border:1.5px solid #d1d5db;display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent;transition:background .15s,border-color .15s,color .15s;pointer-events:none;z-index:2}
+                    .module-card--selected .module-card__scope-badge{background:#22c55e;border-color:#16a34a;color:#fff}
+                    .module-card .btn{position:relative;z-index:3}
+                </style>
             </div>
         </div>
     </details>
@@ -1400,5 +1436,120 @@ else
         resetCharts();
     });
 })();
+</script>
+<script>
+(function () {
+    var grid = document.getElementById('module-card-grid');
+    if (!grid) return;
+
+    var isArchived = grid.dataset.archived === 'true';
+    var savedScope = [];
+    try { savedScope = JSON.parse(grid.dataset.scope || '[]'); } catch (_) {}
+    var savedSet = new Set(savedScope.map(Number));
+
+    // Inject a scope badge into every card and register click handlers
+    var cards = grid.querySelectorAll('.module-card');
+    cards.forEach(function (card) {
+        var eyebrow = card.querySelector('.module-card__eyebrow');
+        if (!eyebrow) return;
+        var ruleNum = parseInt((eyebrow.textContent || '').replace(/\D/g, ''), 10);
+        if (!ruleNum) return;
+        card.dataset.ruleNum = ruleNum;
+
+        var badge = document.createElement('div');
+        badge.className = 'module-card__scope-badge';
+        badge.textContent = '✓';
+        card.prepend(badge);
+
+        var inScope = savedSet.has(ruleNum);
+        if (inScope)    card.classList.add('module-card--selected');
+        if (!isArchived) {
+            card.addEventListener('click', function (e) {
+                if (e.target.closest('.btn')) return; // don't toggle when clicking Open Rule
+                scopeToggleCard(card);
+            });
+        }
+    });
+
+    if (!isArchived) {
+        // Apply outscope dimming to unselected cards when a scope is defined
+        if (savedSet.size > 0) applyOutscope();
+    }
+
+    updateScopeCount();
+
+    function scopeToggleCard(card) {
+        card.classList.toggle('module-card--selected');
+        applyOutscope();
+        updateScopeCount();
+        syncHiddenForm();
+    }
+
+    function applyOutscope() {
+        var hasSelection = grid.querySelectorAll('.module-card--selected').length > 0;
+        cards.forEach(function (c) {
+            if (!c.classList.contains('module-card--selected'))
+                c.classList.toggle('module-card--outscope', hasSelection);
+            else
+                c.classList.remove('module-card--outscope');
+        });
+    }
+
+    function syncHiddenForm() {
+        var container = document.getElementById('scope-hidden-inputs');
+        if (!container) return;
+        container.innerHTML = '';
+        grid.querySelectorAll('.module-card--selected').forEach(function (c) {
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'selectedRules';
+            inp.value = c.dataset.ruleNum;
+            container.appendChild(inp);
+        });
+    }
+
+    function updateScopeCount() {
+        var selected = grid.querySelectorAll('.module-card--selected').length;
+        var total = cards.length;
+        var label = document.getElementById('scope-count-label');
+        if (!label) return;
+        if (selected === 0) {
+            label.innerHTML = 'No rules selected — all rules are in scope by default';
+            label.className = 'scope-count--none';
+        } else {
+            label.innerHTML = '<span class="scope-count">' + selected + '</span> of ' + total + ' rules selected for this engagement';
+            label.className = '';
+        }
+    }
+
+    // Called by toolbar buttons
+    window.scopeSelectAll = function () {
+        cards.forEach(function (c) {
+            c.classList.add('module-card--selected');
+            c.classList.remove('module-card--outscope');
+        });
+        updateScopeCount();
+        syncHiddenForm();
+    };
+    window.scopeClearAll = function () {
+        cards.forEach(function (c) {
+            c.classList.remove('module-card--selected', 'module-card--outscope');
+        });
+        updateScopeCount();
+        syncHiddenForm();
+    };
+
+    // Sync before the form submits so hidden inputs are current
+    var form = document.getElementById('scope-form');
+    if (form) {
+        form.addEventListener('submit', function () { syncHiddenForm(); });
+        // Also sync on Save Rule Selection button click (belt-and-suspenders)
+        var saveBtn = document.querySelector('[form="scope-form"]');
+        if (saveBtn) saveBtn.addEventListener('click', function () { syncHiddenForm(); });
+    }
+
+    // Initial sync so re-saves reflect currently-selected state
+    syncHiddenForm();
+}());
 </script>
 

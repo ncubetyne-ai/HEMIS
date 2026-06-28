@@ -619,6 +619,29 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin,Director,Manager,DataAnalyst")]
+        public async Task<IActionResult> SaveRuleScope(int clientId, List<int>? selectedRules)
+        {
+            var user = await _users.GetUserAsync(User);
+            if (user == null) return RedirectToAction("Login", "Account");
+
+            var detail = await _systemDb.GetClientDetailAsync(clientId, user, await GetCurrentSystemRoleAsync(user));
+            if (detail?.IsArchived == true)
+            {
+                TempData["Error"] = "Archived engagements are read-only.";
+                return RedirectToAction(nameof(ClientDetail), new { id = clientId });
+            }
+
+            await _systemDb.SaveEngagementScopeAsync(clientId, selectedRules ?? new List<int>(), user);
+            var count = (selectedRules?.Count ?? 0);
+            TempData["Success"] = count == 0
+                ? "Rule scope cleared — all rules are now required for archiving."
+                : $"Rule scope saved: {count} rule{(count == 1 ? "" : "s")} selected for this engagement.";
+
+            return RedirectToAction(nameof(ClientDetail), new { id = clientId });
+        }
+
+        [HttpPost, ValidateAntiForgeryToken]
         [Authorize(Roles = "Director")]
         public async Task<IActionResult> ArchiveClient(int id, string? returnUrl = null)
         {
