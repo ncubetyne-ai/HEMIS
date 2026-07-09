@@ -575,6 +575,21 @@ app.MapControllerRoute(
     defaults: new { controller = "Rule68", action = "Index" });
 
 app.MapControllerRoute(
+    name: "clinicaltech-short",
+    pattern: "ClinicalTech",
+    defaults: new { controller = "ClinicalTech", action = "Index" });
+
+app.MapControllerRoute(
+    name: "biokinetic-short",
+    pattern: "Biokinetic",
+    defaults: new { controller = "Biokinetic", action = "Index" });
+
+app.MapControllerRoute(
+    name: "radiography-short",
+    pattern: "Radiography",
+    defaults: new { controller = "Radiography", action = "Index" });
+
+app.MapControllerRoute(
     name: "rule58-run",
     pattern: "Rule58/Run/{id:int}",
     defaults: new { controller = "Rule58", action = "Run" });

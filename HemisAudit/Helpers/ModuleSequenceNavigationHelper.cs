@@ -133,7 +133,7 @@ namespace HemisAudit.Helpers
                 RuleNumber = module.RuleNumber,
                 RuleLabel = module.RuleLabel,
                 RuleTitle = module.RuleTitle,
-                Url = $"/Rule{module.RuleNumber}?clientId={clientId}",
+                Url = RuleRouteHelper.GetWorkspaceUrl(module.RuleNumber, clientId),
                 OpensSavedRun = false
             };
 
@@ -162,8 +162,8 @@ namespace HemisAudit.Helpers
                 RuleLabel = module.RuleLabel,
                 RuleTitle = module.RuleTitle,
                 Url = candidateRun != null
-                    ? $"/Rule{module.RuleNumber}/Run/{candidateRun.Id}"
-                    : $"/Rule{module.RuleNumber}?clientId={clientId}",
+                    ? RuleRouteHelper.GetRunUrl(module.RuleNumber, candidateRun.Id)
+                    : RuleRouteHelper.GetWorkspaceUrl(module.RuleNumber, clientId),
                 OpensSavedRun = candidateRun != null
             };
         }

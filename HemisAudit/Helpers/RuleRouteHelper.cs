@@ -4,7 +4,7 @@ namespace HemisAudit.Helpers
     {
         private static readonly int[] SupportedRuleNumbers =
         {
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71
         };
 
         public static IReadOnlyList<int> GetSupportedRuleNumbers() => SupportedRuleNumbers;
@@ -46,17 +46,35 @@ namespace HemisAudit.Helpers
             34 => "Rule34",
             35 => "Rule35",
             36 => "Rule36",
+            68 => "Rule68",
+            69 => "ClinicalTech",
+            70 => "Biokinetic",
+            71 => "Radiography",
             _ => $"Rule{ruleNumber}"
+        };
+
+        private static readonly Dictionary<int, string> NamedControllerPaths = new()
+        {
+            { 69, "/ClinicalTech" },
+            { 70, "/Biokinetic" },
+            { 71, "/Radiography" }
         };
 
         public static string GetWorkspaceUrl(int ruleNumber, int? clientId = null)
         {
-            var url = $"/Rule{ruleNumber}";
+            var basePath = NamedControllerPaths.TryGetValue(ruleNumber, out var named)
+                ? named
+                : $"/Rule{ruleNumber}";
             return clientId.HasValue && clientId.Value > 0
-                ? $"{url}?clientId={clientId.Value}"
-                : url;
+                ? $"{basePath}?clientId={clientId.Value}"
+                : basePath;
         }
 
-        public static string GetRunUrl(int ruleNumber, int runId) => $"/Rule{ruleNumber}/Run/{runId}";
+        public static string GetRunUrl(int ruleNumber, int runId)
+        {
+            if (NamedControllerPaths.TryGetValue(ruleNumber, out var named))
+                return named;
+            return $"/Rule{ruleNumber}/Run/{runId}";
+        }
     }
 }
