@@ -71,7 +71,9 @@ namespace HemisAudit.Helpers
             new(69, "ClinicalTech", "Qualification & Surname Validation"),
             new(70, "Biokinetic", "Qualification & Surname Validation"),
             new(71, "Radiography", "Qualification & Surname Validation"),
-            new(72, "Pharmacy", "Qualification & Surname Validation")
+            new(72, "Pharmacy", "Qualification & Surname Validation"),
+            new(73, "Nursing", "Qualification & Surname Validation"),
+            new(74, "Biomedical", "Qualification & Surname Validation")
         };
 
         public static ModuleSequenceNavigationViewModel? BuildForWorkspace(int currentRuleNumber, int clientId)

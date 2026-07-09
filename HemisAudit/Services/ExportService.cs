@@ -91,6 +91,8 @@ namespace HemisAudit.Services
         byte[] ExportRule68Csv(Rule68ValidationSummary summary);
         byte[] ExportSql(string sql);
         byte[] ExportRule64Excel(Rule64ValidationSummary summary);
+        byte[] ExportQualSurnameExcel(string moduleName, int ruleNumber, int totalValidated, int passCount, int failCount, decimal exceptionRate, string status, string sourceTable, string prodTable, string qualCol, string surnameCol, IEnumerable<(string Qual, string Surname, string Status, string ProdQual, string ProdSurname)> rows);
+        byte[] ExportQualSurnameCsv(IEnumerable<(string Qual, string Surname, string Status, string ProdQual, string ProdSurname)> rows, bool exceptionsOnly = false);
     }
 
     public class ExportService : IExportService
@@ -4347,6 +4349,159 @@ namespace HemisAudit.Services
             var json = System.Text.Json.JsonSerializer.Serialize(summary);
             var r39 = System.Text.Json.JsonSerializer.Deserialize<Rule39ValidationSummary>(json) ?? new Rule39ValidationSummary();
             return ExportRule39Csv(r39, exceptionsOnly);
+        }
+
+        // ─── Qualification / Surname modules (Rules 69-75) ───────────────────
+        public byte[] ExportQualSurnameExcel(
+            string moduleName,
+            int ruleNumber,
+            int totalValidated,
+            int passCount,
+            int failCount,
+            decimal exceptionRate,
+            string status,
+            string sourceTable,
+            string prodTable,
+            string qualCol,
+            string surnameCol,
+            IEnumerable<(string Qual, string Surname, string Status, string ProdQual, string ProdSurname)> rows)
+        {
+            var rowList = rows.ToList();
+            using var wb = new XLWorkbook();
+
+            // Sheet 1: Validation Results
+            var wsR = wb.Worksheets.Add("Validation Results");
+            StyleHeaderRow(wsR, 1, $"RULE {ruleNumber} — {moduleName.ToUpper()} QUALIFICATION VALIDATION", 6);
+            var rHdr = new[] { "#", "Result", $"{moduleName} QUAL", $"{moduleName} Surname", "Production QUAL", "Production Surname" };
+            for (int i = 0; i < rHdr.Length; i++)
+            {
+                var cell = wsR.Cell(2, i + 1);
+                cell.Value = rHdr[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1A237E");
+                cell.Style.Font.FontColor = XLColor.White;
+            }
+            int rowNum = 3;
+            foreach (var row in rowList)
+            {
+                wsR.Cell(rowNum, 1).Value = rowNum - 2;
+                var badge = wsR.Cell(rowNum, 2);
+                badge.Value = row.Status;
+                badge.Style.Fill.BackgroundColor = row.Status == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                badge.Style.Font.Bold = true;
+                wsR.Cell(rowNum, 3).Value = row.Qual;
+                wsR.Cell(rowNum, 4).Value = row.Surname;
+                wsR.Cell(rowNum, 5).Value = row.ProdQual;
+                wsR.Cell(rowNum, 6).Value = row.ProdSurname;
+                rowNum++;
+            }
+            for (int c = 1; c <= 6; c++) wsR.Column(c).AdjustToContents();
+
+            // Sheet 2: Summary
+            var wsS = wb.Worksheets.Add("Summary");
+            StyleHeaderRow(wsS, 1, $"HEMIS RULE {ruleNumber}: {moduleName} QUALIFICATION & SURNAME VALIDATION", 2);
+            var summaryData = new[]
+            {
+                ("Module",           moduleName),
+                ("Rule Number",      ruleNumber.ToString()),
+                ("Source Table",     sourceTable),
+                ("Production Table", prodTable),
+                ("QUALIFICATION Col",qualCol),
+                ("Surname Col",      surnameCol),
+                ("Validation Date",  DateTime.Now.ToString("yyyy-MM-dd HH:mm")),
+                ("",                 ""),
+                ("RESULTS",          ""),
+                ("Total Validated",  totalValidated.ToString("N0")),
+                ("PASS",             passCount.ToString("N0")),
+                ("FAIL",             failCount.ToString("N0")),
+                ("Exception Rate",   $"{exceptionRate:F2}%"),
+                ("Overall Status",   status),
+            };
+            int sRow = 2;
+            foreach (var (label, value) in summaryData)
+            {
+                if (label == "RESULTS")
+                {
+                    var hc = wsS.Cell(sRow, 1);
+                    hc.Value = label;
+                    hc.Style.Font.Bold = true;
+                    hc.Style.Fill.BackgroundColor = XLColor.FromHtml("#1A237E");
+                    hc.Style.Font.FontColor = XLColor.White;
+                    wsS.Range(sRow, 1, sRow, 2).Merge();
+                }
+                else if (label != "")
+                {
+                    wsS.Cell(sRow, 1).Value = label;
+                    wsS.Cell(sRow, 1).Style.Font.Bold = true;
+                    wsS.Cell(sRow, 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F5F5F5");
+                    wsS.Cell(sRow, 2).Value = value;
+                    if (label == "Overall Status")
+                    {
+                        var col = value == "PASS" ? XLColor.FromHtml("#C8E6C9") : XLColor.FromHtml("#FFCDD2");
+                        wsS.Cell(sRow, 2).Style.Fill.BackgroundColor = col;
+                        wsS.Cell(sRow, 2).Style.Font.Bold = true;
+                    }
+                }
+                sRow++;
+            }
+            wsS.Column(1).Width = 28;
+            wsS.Column(2).Width = 50;
+
+            // Sheet 3: Exceptions
+            var exceptions = rowList.Where(r => r.Status == "FAIL").ToList();
+            if (exceptions.Any())
+            {
+                var wsE = wb.Worksheets.Add("Exceptions");
+                StyleHeaderRow(wsE, 1, $"RULE {ruleNumber} EXCEPTIONS — QUALIFICATION NOT IN PRODUCTION", 4);
+                var eHdr = new[] { "#", $"{moduleName} QUAL", $"{moduleName} Surname", "Result" };
+                for (int i = 0; i < eHdr.Length; i++)
+                {
+                    var cell = wsE.Cell(2, i + 1);
+                    cell.Value = eHdr[i];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#B71C1C");
+                    cell.Style.Font.FontColor = XLColor.White;
+                }
+                int eRow = 3;
+                foreach (var ex in exceptions)
+                {
+                    wsE.Cell(eRow, 1).Value = eRow - 2;
+                    wsE.Cell(eRow, 2).Value = ex.Qual;
+                    wsE.Cell(eRow, 3).Value = ex.Surname;
+                    var rc = wsE.Cell(eRow, 4);
+                    rc.Value = "FAIL";
+                    rc.Style.Fill.BackgroundColor = XLColor.FromHtml("#FFCDD2");
+                    rc.Style.Font.Bold = true;
+                    eRow++;
+                }
+                for (int c = 1; c <= 4; c++) wsE.Column(c).AdjustToContents();
+            }
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        public byte[] ExportQualSurnameCsv(
+            IEnumerable<(string Qual, string Surname, string Status, string ProdQual, string ProdSurname)> rows,
+            bool exceptionsOnly = false)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Qualification,Surname,Status,ProductionQualification,ProductionSurname");
+            foreach (var row in rows)
+            {
+                if (exceptionsOnly && row.Status != "FAIL") continue;
+                sb.AppendLine($"{CsvEsc(row.Qual)},{CsvEsc(row.Surname)},{row.Status},{CsvEsc(row.ProdQual)},{CsvEsc(row.ProdSurname)}");
+            }
+            return Encoding.UTF8.GetBytes(sb.ToString());
+        }
+
+        private static string CsvEsc(string? v)
+        {
+            if (string.IsNullOrEmpty(v)) return "";
+            if (v.Contains(',') || v.Contains('"') || v.Contains('\n'))
+                return $"\"{v.Replace("\"", "\"\"")}\"";
+            return v;
         }
 
         // ─── SQL Export ───────────────────────────────────────────────────────

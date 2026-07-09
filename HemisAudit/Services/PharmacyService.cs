@@ -251,7 +251,7 @@ DROP TABLE #ProdQualifications;");
                 await using var command = connection.CreateConfiguredCommand();
                 command.CommandText = @"
 SELECT TOP 1
-    HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
+    RunID, HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
     Status, RunTimestamp, ResultsJSON, WorkspaceSavedAt
 FROM dbo.ValidationRuns
 WHERE ClientID = @ClientID AND RuleNumber = 72
@@ -261,31 +261,47 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                 await using var reader = await command.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
                 {
-                    var resultsJson = reader.IsDBNull(8) ? null : reader.GetString(8);
+                    var runId = reader.GetInt32(0);
+                    var resultsJson = reader.IsDBNull(9) ? null : reader.GetString(9);
                     PharmacyValidationSummary? summary = null;
                     if (!string.IsNullOrWhiteSpace(resultsJson))
                     {
                         try { summary = JsonConvert.DeserializeObject<PharmacyValidationSummary>(ValidationPayloadCodec.Decode(resultsJson)); }
-                        catch { /* ignore decode errors */ }
+                        catch { }
                     }
 
-                    return new PharmacyWorkspaceState
+                    var ws = new PharmacyWorkspaceState
                     {
                         ClientId = clientId,
-                        Server = reader.IsDBNull(0) ? "" : reader.GetString(0),
-                        Database = reader.IsDBNull(1) ? "" : reader.GetString(1),
-                        PharmacyTable = reader.IsDBNull(2) ? "Pharmacy" : reader.GetString(2),
-                        ProductionTable = reader.IsDBNull(3) ? "Clinical_Production" : reader.GetString(3),
-                        QualificationColumn = reader.IsDBNull(4) ? "QUALIFICATION" : reader.GetString(4),
-                        SurnameColumn = reader.IsDBNull(5) ? "Surname" : reader.GetString(5),
-                        LastRunStatus = reader.IsDBNull(6) ? null : reader.GetString(6),
-                        LastRunAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7),
-                        IsWorkspaceSaved = !reader.IsDBNull(9),
+                        LastRunId = runId,
+                        Server = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        Database = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                        PharmacyTable = reader.IsDBNull(3) ? "Pharmacy" : reader.GetString(3),
+                        ProductionTable = reader.IsDBNull(4) ? "Clinical_Production" : reader.GetString(4),
+                        QualificationColumn = reader.IsDBNull(5) ? "QUALIFICATION" : reader.GetString(5),
+                        SurnameColumn = reader.IsDBNull(6) ? "Surname" : reader.GetString(6),
+                        LastRunStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        LastRunAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8),
                         Summary = summary
                     };
+                    await reader.CloseAsync();
+                    ws.IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId);
+
+                    int? userId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+                    if (userId.HasValue)
+                        ws.CurrentUserEngagementRole = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId.Value) ?? "";
+
+                    var (hasDA, currentSigned, currentComment) = await QualSurnameModuleHelper.GetSignoffStateAsync(
+                        connection, runId, userId, ws.CurrentUserEngagementRole);
+                    ws.HasDataAnalystSignoff = hasDA;
+                    ws.CurrentUserHasSignedOff = currentSigned;
+                    ws.CurrentUserSignoffComment = currentComment;
+
+                    if (ws.Summary != null) ws.Summary.SavedRunId = runId;
+                    return ws;
                 }
             }
-            catch { /* fall through to cache */ }
+            catch { }
 
             try
             {
@@ -308,7 +324,7 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
                     };
                 }
             }
-            catch { /* ignore */ }
+            catch { }
 
             return null;
         }
@@ -318,8 +334,13 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
             try
             {
                 if (clientId <= 0) return false;
-                await Task.Delay(100);
-                return true;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT TOP 1 RunID FROM dbo.ValidationRuns WHERE ClientID = @ClientID AND RuleNumber = 72 ORDER BY IsCurrent DESC, RunTimestamp DESC;";
+                cmd.Parameters.AddWithValue("@ClientID", clientId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return false;
+                return await QualSurnameModuleHelper.MarkWorkspaceSavedAsync(connection, Convert.ToInt32(val));
             }
             catch { return false; }
         }

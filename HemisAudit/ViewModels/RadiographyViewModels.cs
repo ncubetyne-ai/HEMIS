@@ -26,6 +26,7 @@ namespace HemisAudit.ViewModels
         public string ProductionTable { get; set; } = "Clinical_Production";
         public string QualificationColumn { get; set; } = "QUALIFICATION";
         public string SurnameColumn { get; set; } = "Surname";
+        public string? TableName { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -107,8 +108,14 @@ namespace HemisAudit.ViewModels
         public string SurnameColumn { get; set; } = "Surname";
         public DateTime? LastRunAt { get; set; }
         public string? LastRunStatus { get; set; }
+        public string? CurrentStatus { get; set; }
         public int? LastRunId { get; set; }
         public RadiographyValidationSummary? Summary { get; set; }
         public bool ResultsVisible { get; set; }
+        public bool IsWorkspaceSaved { get; set; }
+        public bool HasDataAnalystSignoff { get; set; }
+        public bool CurrentUserHasSignedOff { get; set; }
+        public string CurrentUserEngagementRole { get; set; } = "";
+        public string CurrentUserSignoffComment { get; set; } = "";
     }
 }

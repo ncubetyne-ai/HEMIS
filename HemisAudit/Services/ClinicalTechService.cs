@@ -323,7 +323,7 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                         if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
                             summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
 
-                        return new ClinicalTechWorkspaceState
+                        var ws = new ClinicalTechWorkspaceState
                         {
                             ClientId = clientId,
                             Server = reader.GetString(1),
@@ -337,9 +337,23 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
                             LastRunStatus = reader.GetString(7),
                             CurrentStatus = reader.GetString(7),
                             Summary = summary,
-                            IsWorkspaceSaved = !reader.IsDBNull(9),
                             LastRunAt = DateTime.UtcNow
                         };
+                        await reader.CloseAsync();
+                        ws.IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId);
+
+                        int? userId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+                        if (userId.HasValue)
+                            ws.CurrentUserEngagementRole = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId.Value) ?? "";
+
+                        var (hasDA, currentSigned, currentComment) = await QualSurnameModuleHelper.GetSignoffStateAsync(
+                            connection, runId, userId, ws.CurrentUserEngagementRole);
+                        ws.HasDataAnalystSignoff = hasDA;
+                        ws.CurrentUserHasSignedOff = currentSigned;
+                        ws.CurrentUserSignoffComment = currentComment;
+
+                        if (ws.Summary != null) ws.Summary.SavedRunId = runId;
+                        return ws;
                     }
                 }
                 catch { }
@@ -376,8 +390,13 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             try
             {
                 if (clientId <= 0) return false;
-                await Task.Delay(100);
-                return true;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT TOP 1 RunID FROM dbo.ValidationRuns WHERE ClientID = @ClientID AND RuleNumber = 69 ORDER BY IsCurrent DESC, RunTimestamp DESC;";
+                cmd.Parameters.AddWithValue("@ClientID", clientId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return false;
+                return await QualSurnameModuleHelper.MarkWorkspaceSavedAsync(connection, Convert.ToInt32(val));
             }
             catch { return false; }
         }
