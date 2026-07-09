@@ -345,6 +345,22 @@ ORDER BY IsCurrent DESC, RunTimestamp DESC;";
             catch { return false; }
         }
 
+        public async Task<PharmacyValidationSummary?> GetFullSummaryByRunIdAsync(int runId)
+        {
+            try
+            {
+                if (runId <= 0) return null;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+                cmd.Parameters.AddWithValue("@RunID", runId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return null;
+                return JsonConvert.DeserializeObject<PharmacyValidationSummary>(ValidationPayloadCodec.Decode(val.ToString()!));
+            }
+            catch { return null; }
+        }
+
         // ── Helpers ────────────────────────────────────────────────────────────
 
         private static string BuildConnectionString(string server, string database, string driver) =>

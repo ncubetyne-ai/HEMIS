@@ -14,5 +14,6 @@ namespace HemisAudit.Services
         Task<bool> SaveWorkspaceStateAsync(int clientId, BiomedicalValidationRequest config, string? userEmail = null);
         Task AddOrUpdateSignoffAsync(int runId, string email, string comment);
         Task RemoveSignoffAsync(int runId, string email);
+        Task<BiomedicalValidationSummary?> GetFullSummaryByRunIdAsync(int runId);
     }
 }

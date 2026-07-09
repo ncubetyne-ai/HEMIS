@@ -388,6 +388,22 @@ ORDER BY vr.IsCurrent DESC, vr.RunTimestamp DESC, vr.RunID DESC;";
             catch { return false; }
         }
 
+        public async Task<RadiographyValidationSummary?> GetFullSummaryByRunIdAsync(int runId)
+        {
+            try
+            {
+                if (runId <= 0) return null;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+                cmd.Parameters.AddWithValue("@RunID", runId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return null;
+                return JsonConvert.DeserializeObject<RadiographyValidationSummary>(ValidationPayloadCodec.Decode(val.ToString()!));
+            }
+            catch { return null; }
+        }
+
         // ── Helper methods ─────────────────────────────────────────────────────
 
         private static string BuildConnectionString(string server, string database, string driver)

@@ -16,5 +16,8 @@ namespace HemisAudit.Services
         // Signoff
         Task AddOrUpdateSignoffAsync(int runId, string email, string comment);
         Task RemoveSignoffAsync(int runId, string email);
+
+        // Full export
+        Task<PharmacyValidationSummary?> GetFullSummaryByRunIdAsync(int runId);
     }
 }

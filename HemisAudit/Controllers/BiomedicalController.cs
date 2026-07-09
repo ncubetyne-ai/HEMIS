@@ -171,9 +171,16 @@ namespace HemisAudit.Controllers
             var result = await _biomedical.SaveWorkspaceStateAsync(request.ClientId, request, user?.Email);
 
             if (result)
+            {
                 await _audit.LogAsync("save_validation_workspace", $"DataAnalyst saved Biomedical workspace for client {request.ClientId}.", user?.Id, user?.Email);
+                var workspace = await _biomedical.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email);
+                var resultsVisible = CanViewWorkspaceResults(role, workspace);
+                if (workspace != null) workspace.ResultsVisible = resultsVisible;
+                if (workspace != null && !resultsVisible) workspace.Summary = null;
+                return Json(new { success = true, message = "Workspace saved.", workspace, resultsVisible });
+            }
 
-            return Json(new { success = result, message = result ? "Workspace saved successfully." : "Failed to save workspace." });
+            return Json(new { success = false, message = "Failed to save workspace." });
         }
 
         [HttpPost]
@@ -216,18 +223,44 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public IActionResult DownloadExcel([FromBody] BiomedicalValidationSummary summary)
+        public async Task<IActionResult> BeginEdit([FromBody] QualSurnameSignoffInput model)
         {
+            var user = await _users.GetUserAsync(User);
+            if (user == null) return Json(new { success = false, error = "Not authenticated." });
+            var role = await GetCurrentSystemRoleAsync(user);
+            var workspace = await _biomedical.GetCurrentWorkspaceStateAsync(model.ClientId, user.Email);
+            var resultsVisible = CanViewWorkspaceResults(role, workspace);
+            if (workspace != null) workspace.ResultsVisible = resultsVisible;
+            if (workspace != null && !resultsVisible) workspace.Summary = null;
+            return Json(new { success = true, message = "Workspace is ready for editing.", workspace, resultsVisible });
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> DownloadExcel([FromBody] QualSurnameSignoffInput model)
+        {
+            var summary = await _biomedical.GetFullSummaryByRunIdAsync(model.RunId);
+            if (summary == null) return NotFound();
             var rows = (summary.ReviewRows ?? new()).Select(r => (r.BiomedicalQualification, r.BiomedicalSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
             var bytes = _export.ExportQualSurnameExcel("Biomedical", 74, summary.TotalValidated, summary.PassCount, summary.FailCount, summary.ExceptionRate, summary.Status ?? "", "Biomedical", "Clinical_Production", "QUALIFICATION", "Surname", rows);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Rule74_Biomedical.xlsx");
         }
 
         [HttpPost]
+        public async Task<IActionResult> DownloadCsv([FromBody] QualSurnameSignoffInput model)
+        {
+            var summary = await _biomedical.GetFullSummaryByRunIdAsync(model.RunId);
+            if (summary == null) return NotFound();
+            var rows = (summary.ReviewRows ?? new()).Select(r => (r.BiomedicalQualification, r.BiomedicalSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
+            var bytes = _export.ExportQualSurnameCsv(rows);
+            return File(bytes, "text/csv", "Rule74_Biomedical.csv");
+        }
+
+        [HttpPost]
         public async Task<IActionResult> DownloadSql([FromBody] BiomedicalValidationRequest request)
         {
             var sql = await _biomedical.GenerateSqlAsync(request);
-            return Json(new { success = true, sql });
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sql);
+            return File(bytes, "text/plain", "Rule74_Biomedical.sql");
         }
 
         // ── Helper methods ─────────────────────────────────────────────────────

@@ -887,6 +887,7 @@ namespace HemisAudit.ViewModels
     public class QualSurnameSignoffInput
     {
         public int RunId { get; set; }
+        public int ClientId { get; set; }
         public string Comment { get; set; } = "";
     }
 }
