@@ -225,7 +225,7 @@
                 <span class="collapsible-trigger__title">Modules</span>
                 <span class="collapsible-trigger__subtitle">Open the validation workspaces or review module availability for this engagement.</span>
             </div>
-            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, ClinicalTech (69), Biokinetic (70), Radiography (71), Pharmacy (72), Nursing (73) and Biomedical (74)</span>
+            <span class="collapsible-trigger__meta">Rules 1-10, 11-32, 34-36, 37, 38, 39, 40, 41, 44, 45, 46, 47, 48, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, ClinicalTech (69), Biokinetic (70), Radiography (71), Pharmacy (72), Nursing (73), Biomedical (74) and Mop (75)</span>
             <span class="collapsible-trigger__icon" aria-hidden="true"></span>
         </summary>
         <div class="collapsible-panel">
@@ -770,6 +770,14 @@
                             <p class="module-card__text">Cross-references a Biomedical source table against a Clinical Production table. Confirms that each <code>QUALIFICATION</code> present in the Biomedical table exists in production, then verifies the corresponding <code>Surname</code> matches. PASS when both conditions hold; FAIL when QUALIFICATION is missing from production.</p>
                             <div class="module-card__actions">
                                 <a href="/Biomedical?clientId=@Model.Id" class="btn btn-success">Open Rule 74</a>
+                            </div>
+                        </article>
+                        <article class="module-card">
+                            <div class="module-card__eyebrow">Rule 75</div>
+                            <h4 class="module-card__title">Mop: Qualification &amp; Surname Validation</h4>
+                            <p class="module-card__text">Cross-references a Mop source table against a Clinical Production table. Confirms that each <code>QUALIFICATION</code> present in the Mop table exists in production, then verifies the corresponding <code>Surname</code> matches. PASS when both conditions hold; FAIL when QUALIFICATION is missing from production.</p>
+                            <div class="module-card__actions">
+                                <a href="/Mop?clientId=@Model.Id" class="btn btn-success">Open Rule 75</a>
                             </div>
                         </article>
                     </div>

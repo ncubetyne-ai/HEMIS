@@ -9,22 +9,22 @@ using Microsoft.AspNetCore.Mvc;
 namespace HemisAudit.Controllers
 {
     [Authorize]
-    public class BiokinEticController : Controller
+    public class MopController : Controller
     {
-        private readonly IBiokinieticService _biokinetic;
+        private readonly IMopService _mop;
         private readonly IExportService _export;
         private readonly IAuditLogService _audit;
         private readonly UserManager<ApplicationUser> _users;
         private readonly ISystemDatabaseService _systemDb;
 
-        public BiokinEticController(
-            IBiokinieticService biokinetic,
+        public MopController(
+            IMopService mop,
             IExportService export,
             IAuditLogService audit,
             UserManager<ApplicationUser> users,
             ISystemDatabaseService systemDb)
         {
-            _biokinetic = biokinetic;
+            _mop = mop;
             _export = export;
             _audit = audit;
             _users = users;
@@ -69,7 +69,7 @@ namespace HemisAudit.Controllers
                 .ToList();
             ViewBag.ClientId = clientId;
             ViewBag.CurrentSystemRole = role;
-            ViewBag.ModuleNavigation = ModuleSequenceNavigationHelper.BuildForWorkspace(70, clientId);
+            ViewBag.ModuleNavigation = ModuleSequenceNavigationHelper.BuildForWorkspace(75, clientId);
             return View();
         }
 
@@ -89,10 +89,9 @@ namespace HemisAudit.Controllers
                 return Json(new { success = false, error = "You cannot access this engagement." });
             }
 
-            var workspace = await _biokinetic.GetCurrentWorkspaceStateAsync(clientId, user?.Email);
+            var workspace = await _mop.GetCurrentWorkspaceStateAsync(clientId, user?.Email);
             var resultsVisible = CanViewWorkspaceResults(role, workspace);
             if (workspace != null) workspace.ResultsVisible = resultsVisible;
-
             if (workspace != null && !resultsVisible) workspace.Summary = null;
 
             return Json(new { success = true, hasWorkspace = workspace != null, resultsVisible, workspace });
@@ -102,7 +101,7 @@ namespace HemisAudit.Controllers
         public async Task<IActionResult> GetDatabases([FromBody] ConnectionViewModel model)
         {
             var result = await RequireDataAnalystAsync(
-                async () => await _biokinetic.GetDatabasesAsync(model.Server, model.Driver));
+                async () => await _mop.GetDatabasesAsync(model.Server, model.Driver));
             return Json(result);
         }
 
@@ -110,54 +109,54 @@ namespace HemisAudit.Controllers
         public async Task<IActionResult> GetTables([FromBody] ConnectionViewModel model)
         {
             var result = await RequireDataAnalystAsync(
-                async () => await _biokinetic.GetTablesAsync(model.Server, model.Database, model.Driver));
+                async () => await _mop.GetTablesAsync(model.Server, model.Database, model.Driver));
             return Json(result);
         }
 
         [HttpPost]
-        public async Task<IActionResult> GetColumns([FromBody] BiokinieticVerifyRequest request)
+        public async Task<IActionResult> GetColumns([FromBody] MopVerifyRequest request)
         {
-            var tableName = !string.IsNullOrWhiteSpace(request.TableName) ? request.TableName : request.BiokinieticTable;
+            var tableName = !string.IsNullOrWhiteSpace(request.TableName) ? request.TableName : request.MopTable;
             var result = await RequireDataAnalystAsync(
-                async () => await _biokinetic.GetColumnsAsync(request.Server, request.Database, request.Driver, tableName));
+                async () => await _mop.GetColumnsAsync(request.Server, request.Database, request.Driver, tableName));
             return Json(result);
         }
 
         [HttpPost]
-        public async Task<IActionResult> VerifyTables([FromBody] BiokinieticVerifyRequest request)
+        public async Task<IActionResult> VerifyTables([FromBody] MopVerifyRequest request)
         {
             var result = await RequireDataAnalystAsync(
-                async () => await _biokinetic.VerifyTablesAsync(request));
+                async () => await _mop.VerifyTablesAsync(request));
             return Json(result);
         }
 
         [HttpPost]
-        public async Task<IActionResult> RunValidation([FromBody] BiokinieticValidationRequest request)
+        public async Task<IActionResult> RunValidation([FromBody] MopValidationRequest request)
         {
             var user = await _users.GetUserAsync(User);
             var role = await GetCurrentSystemRoleAsync(user);
 
             if (request.ClientId <= 0)
-                return Json(new BiokinieticValidationSummary { Success = false, Error = "Select an approved engagement before running validation." });
+                return Json(new MopValidationSummary { Success = false, Error = "Select an approved engagement before running validation." });
 
             if (!await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
-                return Json(new BiokinieticValidationSummary { Success = false, Error = "You cannot access this engagement." });
+                return Json(new MopValidationSummary { Success = false, Error = "You cannot access this engagement." });
 
             var engagementRole = await _systemDb.GetEngagementRoleAsync(request.ClientId, user, role);
             if (!string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(engagementRole, "DataAnalyst", StringComparison.OrdinalIgnoreCase))
-                return Json(new BiokinieticValidationSummary { Success = false, Error = "Only the assigned data analyst can run Biokinetic validation." });
+                return Json(new MopValidationSummary { Success = false, Error = "Only the assigned data analyst can run Mop validation." });
 
-            var result = await _biokinetic.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
+            var result = await _mop.RunValidationAsync(request, user?.Email, user?.FullName ?? user?.Email);
 
             if (result.Success)
-                await _audit.LogAsync("run_validation", $"Biokinetic on client {request.ClientId}: {result.Status} ({result.FailCount} fail rows).", user?.Id, user?.Email);
+                await _audit.LogAsync("run_validation", $"Mop on client {request.ClientId}: {result.Status} ({result.FailCount} fail rows).", user?.Id, user?.Email);
 
             return Json(result);
         }
 
         [HttpPost]
-        public async Task<IActionResult> SaveWorkspace([FromBody] BiokinieticValidationRequest request)
+        public async Task<IActionResult> SaveWorkspace([FromBody] MopValidationRequest request)
         {
             var user = await _users.GetUserAsync(User);
             var role = await GetCurrentSystemRoleAsync(user);
@@ -168,12 +167,12 @@ namespace HemisAudit.Controllers
             if (!await _systemDb.CanAccessClientResultsAsync(request.ClientId, user, role))
                 return Json(new { success = false, error = "You cannot access this engagement." });
 
-            var result = await _biokinetic.SaveWorkspaceStateAsync(request.ClientId, request, user?.Email);
+            var result = await _mop.SaveWorkspaceStateAsync(request.ClientId, request, user?.Email);
 
             if (result)
             {
-                await _audit.LogAsync("save_validation_workspace", $"DataAnalyst saved Biokinetic workspace for client {request.ClientId}.", user?.Id, user?.Email);
-                var workspace = await _biokinetic.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email);
+                await _audit.LogAsync("save_validation_workspace", $"DataAnalyst saved Mop workspace for client {request.ClientId}.", user?.Id, user?.Email);
+                var workspace = await _mop.GetCurrentWorkspaceStateAsync(request.ClientId, user?.Email);
                 var resultsVisible = CanViewWorkspaceResults(role, workspace);
                 if (workspace != null) workspace.ResultsVisible = resultsVisible;
                 if (workspace != null && !resultsVisible) workspace.Summary = null;
@@ -184,11 +183,11 @@ namespace HemisAudit.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> GenerateSql([FromBody] BiokinieticValidationRequest request)
+        public async Task<IActionResult> GenerateSql([FromBody] MopValidationRequest request)
         {
             var result = await RequireDataAnalystAsync(async () =>
             {
-                var sql = await _biokinetic.GenerateSqlAsync(request);
+                var sql = await _mop.GenerateSqlAsync(request);
                 return new { success = true, sql } as object;
             });
             return Json(result);
@@ -201,8 +200,8 @@ namespace HemisAudit.Controllers
             if (user == null) return Json(new { success = false, error = "Not authenticated." });
             try
             {
-                await _biokinetic.AddOrUpdateSignoffAsync(model.RunId, user.Email!, model.Comment);
-                await _audit.LogAsync("add_signoff", $"Biokinetic signoff added for run {model.RunId}.", user.Id, user.Email);
+                await _mop.AddOrUpdateSignoffAsync(model.RunId, user.Email!, model.Comment);
+                await _audit.LogAsync("add_signoff", $"Mop signoff added for run {model.RunId}.", user.Id, user.Email);
                 return Json(new { success = true });
             }
             catch (Exception ex) { return Json(new { success = false, error = ex.Message }); }
@@ -215,8 +214,8 @@ namespace HemisAudit.Controllers
             if (user == null) return Json(new { success = false, error = "Not authenticated." });
             try
             {
-                await _biokinetic.RemoveSignoffAsync(model.RunId, user.Email!);
-                await _audit.LogAsync("remove_signoff", $"Biokinetic signoff removed for run {model.RunId}.", user.Id, user.Email);
+                await _mop.RemoveSignoffAsync(model.RunId, user.Email!);
+                await _audit.LogAsync("remove_signoff", $"Mop signoff removed for run {model.RunId}.", user.Id, user.Email);
                 return Json(new { success = true });
             }
             catch (Exception ex) { return Json(new { success = false, error = ex.Message }); }
@@ -228,7 +227,7 @@ namespace HemisAudit.Controllers
             var user = await _users.GetUserAsync(User);
             if (user == null) return Json(new { success = false, error = "Not authenticated." });
             var role = await GetCurrentSystemRoleAsync(user);
-            var workspace = await _biokinetic.GetCurrentWorkspaceStateAsync(model.ClientId, user.Email);
+            var workspace = await _mop.GetCurrentWorkspaceStateAsync(model.ClientId, user.Email);
             var resultsVisible = CanViewWorkspaceResults(role, workspace);
             if (workspace != null) workspace.ResultsVisible = resultsVisible;
             if (workspace != null && !resultsVisible) workspace.Summary = null;
@@ -238,29 +237,29 @@ namespace HemisAudit.Controllers
         [HttpPost]
         public async Task<IActionResult> DownloadExcel([FromBody] QualSurnameSignoffInput model)
         {
-            var summary = await _biokinetic.GetFullSummaryByRunIdAsync(model.RunId);
+            var summary = await _mop.GetFullSummaryByRunIdAsync(model.RunId);
             if (summary == null) return NotFound();
-            var rows = (summary.ReviewRows ?? new()).Select(r => (r.BiokinieticQualification, r.BiokinieticSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
-            var bytes = _export.ExportQualSurnameExcel("Biokinetic", 70, summary.TotalValidated, summary.PassCount, summary.FailCount, summary.ExceptionRate, summary.Status ?? "", "Biokinetic", "Clinical_Production", "QUALIFICATION", "Surname", rows);
-            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Rule70_Biokinetic.xlsx");
+            var rows = (summary.ReviewRows ?? new()).Select(r => (r.MopQualification, r.MopSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
+            var bytes = _export.ExportQualSurnameExcel("Mop", 75, summary.TotalValidated, summary.PassCount, summary.FailCount, summary.ExceptionRate, summary.Status ?? "", "Mop", "Clinical_Production", "QUALIFICATION", "Surname", rows);
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Rule75_Mop.xlsx");
         }
 
         [HttpPost]
         public async Task<IActionResult> DownloadCsv([FromBody] QualSurnameSignoffInput model)
         {
-            var summary = await _biokinetic.GetFullSummaryByRunIdAsync(model.RunId);
+            var summary = await _mop.GetFullSummaryByRunIdAsync(model.RunId);
             if (summary == null) return NotFound();
-            var rows = (summary.ReviewRows ?? new()).Select(r => (r.BiokinieticQualification, r.BiokinieticSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
+            var rows = (summary.ReviewRows ?? new()).Select(r => (r.MopQualification, r.MopSurname, r.Status, r.ProductionQualification, r.ProductionSurname));
             var bytes = _export.ExportQualSurnameCsv(rows);
-            return File(bytes, "text/csv", "Rule70_Biokinetic.csv");
+            return File(bytes, "text/csv", "Rule75_Mop.csv");
         }
 
         [HttpPost]
-        public async Task<IActionResult> DownloadSql([FromBody] BiokinieticValidationRequest request)
+        public async Task<IActionResult> DownloadSql([FromBody] MopValidationRequest request)
         {
-            var sql = await _biokinetic.GenerateSqlAsync(request);
+            var sql = await _mop.GenerateSqlAsync(request);
             var bytes = System.Text.Encoding.UTF8.GetBytes(sql);
-            return File(bytes, "text/plain", "Rule70_Biokinetic.sql");
+            return File(bytes, "text/plain", "Rule75_Mop.sql");
         }
 
         // ── Helper methods ─────────────────────────────────────────────────────
@@ -284,7 +283,7 @@ namespace HemisAudit.Controllers
             return roles.FirstOrDefault() ?? "";
         }
 
-        private static bool CanViewWorkspaceResults(string role, BiokinieticWorkspaceState? workspace)
+        private static bool CanViewWorkspaceResults(string role, MopWorkspaceState? workspace)
         {
             if (workspace == null) return false;
             if (string.Equals(role, "DataAnalyst", StringComparison.OrdinalIgnoreCase) ||

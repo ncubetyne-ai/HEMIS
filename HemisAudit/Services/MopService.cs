@@ -1,0 +1,588 @@
+using System.Security.Cryptography;
+using HemisAudit.Helpers;
+using HemisAudit.ViewModels;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
+
+namespace HemisAudit.Services
+{
+    public class MopService : IMopService
+    {
+        private const int BrowserPreviewRowLimit = 10;
+        private readonly IPendingValidationCacheService _pendingValidationCache;
+        private readonly IConfiguration _configuration;
+
+        public MopService(IPendingValidationCacheService pendingValidationCache, IConfiguration configuration)
+        {
+            _pendingValidationCache = pendingValidationCache;
+            _configuration = configuration;
+        }
+
+        public async Task<DatabaseListResult> GetDatabasesAsync(string server, string driver)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(server, "master", driver);
+                await using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT name FROM sys.databases WHERE name NOT IN ('master','tempdb','model','msdb') ORDER BY name;";
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var items = new List<string>();
+                while (await reader.ReadAsync()) items.Add(reader.GetString(0));
+                return new DatabaseListResult { Success = true, Databases = items };
+            }
+            catch (Exception ex) { return new DatabaseListResult { Success = false, Error = ex.Message }; }
+        }
+
+        public async Task<MopTableDiscoveryResult> GetTablesAsync(string server, string database, string driver)
+        {
+            try
+            {
+                var connStr = BuildConnectionString(server, database, driver);
+                await using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;";
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var tables = new List<string>();
+                while (await reader.ReadAsync()) tables.Add(reader.GetString(0));
+                return new MopTableDiscoveryResult
+                {
+                    Success = true,
+                    Tables = tables,
+                    AutoMopTable = FindFirst(tables, ["Mop", "mop"], ["mop"]),
+                    AutoProductionTable = FindFirst(tables, ["Clinical_Production", "ClinicalProduction"], ["production"])
+                };
+            }
+            catch (Exception ex) { return new MopTableDiscoveryResult { Success = false, Error = ex.Message }; }
+        }
+
+        public async Task<ColumnListResult> GetColumnsAsync(string server, string database, string driver, string tableName)
+        {
+            try
+            {
+                ValidateObjectName(tableName);
+                var tbl = Sanitise(tableName);
+                var connStr = BuildConnectionString(server, database, driver);
+                await using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @T ORDER BY ORDINAL_POSITION;";
+                cmd.Parameters.AddWithValue("@T", tbl);
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var cols = new List<string>();
+                while (await reader.ReadAsync()) if (!reader.IsDBNull(0)) cols.Add(reader.GetString(0));
+                return new ColumnListResult { Success = true, Columns = cols, AutoSelected = cols.FirstOrDefault() };
+            }
+            catch (Exception ex) { return new ColumnListResult { Success = false, Error = ex.Message }; }
+        }
+
+        public async Task<MopVerifyResult> VerifyTablesAsync(MopVerifyRequest request)
+        {
+            try
+            {
+                ValidateRequest(request);
+                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+                await using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+
+                var mopTable = Sanitise(request.MopTable);
+                var prodTable = Sanitise(request.ProductionTable);
+                var qualCol = Sanitise(request.QualificationColumn);
+
+                var mopCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{mopTable}];");
+                var prodCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{prodTable}];");
+
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandText = BuildPopulationCountSql(mopTable, prodTable, qualCol);
+                await using var reader = await cmd.ExecuteReaderAsync();
+
+                var result = new MopVerifyResult { Success = true, MopRecordCount = mopCount, ProductionRecordCount = prodCount };
+                if (await reader.ReadAsync())
+                {
+                    result.TotalTested = GetInt(reader, 0);
+                    result.MatchedCount = GetInt(reader, 1);
+                    result.MissingCount = GetInt(reader, 2);
+                }
+                return result;
+            }
+            catch (Exception ex) { return new MopVerifyResult { Success = false, Error = ex.Message }; }
+        }
+
+        public async Task<MopValidationSummary> RunValidationAsync(MopValidationRequest request, string? userEmail = null, string? userName = null)
+        {
+            try
+            {
+                ValidateRequest(request);
+                var browserSummary = await AnalyseAsync(request, includeAllReviewRows: false);
+                if (browserSummary.Success && request.ClientId > 0)
+                {
+                    try
+                    {
+                        var full = CloneSummary(browserSummary);
+                        if (full.IsPreviewOnly || full.ReviewRows.Count < full.TotalValidated)
+                            full = await AnalyseAsync(request, includeAllReviewRows: true);
+                        full.SavedRunId = null;
+                        browserSummary.SavedRunId = await SaveValidationRunAsync(CloneRequest(request), full, userEmail, userName);
+                        if (!string.IsNullOrWhiteSpace(userEmail))
+                            _pendingValidationCache.ClearPending(75, request.ClientId, userEmail!);
+                    }
+                    catch (Exception ex)
+                    {
+                        browserSummary.Warning = $"Analysis completed, but the workspace could not be saved automatically: {ex.Message}";
+                    }
+                }
+
+                if (!browserSummary.SavedRunId.HasValue)
+                {
+                    if (browserSummary.Success && request.ClientId > 0 && !string.IsNullOrWhiteSpace(userEmail))
+                        _pendingValidationCache.StorePending(75, request.ClientId, userEmail!, request, CloneSummary(browserSummary), userName);
+                    browserSummary.Warning ??= "Browser review rows are limited for performance. The full population is counted.";
+                }
+                else
+                {
+                    browserSummary.Warning = "Mop run written to the system database. Click Save Workspace to finalize it for signoff.";
+                }
+                return browserSummary;
+            }
+            catch (Exception ex) { return new MopValidationSummary { Success = false, Error = ex.Message }; }
+        }
+
+        private async Task<MopValidationSummary> AnalyseAsync(MopValidationRequest request, bool includeAllReviewRows)
+        {
+            try
+            {
+                ValidateRequest(request);
+                var connStr = BuildConnectionString(request.Server, request.Database, request.Driver);
+                await using var conn = new SqlConnection(connStr);
+                await conn.OpenAsync();
+
+                await using var cmd = conn.CreateConfiguredCommand();
+                cmd.CommandTimeout = 300;
+                cmd.CommandText = await GenerateSqlAsync(request);
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                var results = new List<MopReviewRow>();
+                int passCount = 0, failCount = 0, totalCount = 0;
+
+                while (await reader.ReadAsync())
+                {
+                    totalCount++;
+                    var status = reader.GetString(2);
+                    var row = new MopReviewRow
+                    {
+                        MopQualification = reader.IsDBNull(0) ? "" : reader.GetString(0),
+                        MopSurname = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        Status = status,
+                        ProductionQualification = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                        ProductionSurname = reader.IsDBNull(4) ? "" : reader.GetString(4)
+                    };
+
+                    if (status == "PASS") passCount++;
+                    else if (status == "FAIL") failCount++;
+
+                    if (results.Count < (includeAllReviewRows ? int.MaxValue : BrowserPreviewRowLimit))
+                        results.Add(row);
+                }
+
+                var exceptionRate = totalCount > 0 ? Math.Round((decimal)failCount * 100 / totalCount, 2) : 0;
+                return new MopValidationSummary
+                {
+                    Success = true,
+                    Status = exceptionRate == 0 ? "PASS" : "FAIL",
+                    TotalValidated = totalCount,
+                    PassCount = passCount,
+                    FailCount = failCount,
+                    ExceptionRate = exceptionRate,
+                    ReviewRows = results,
+                    IsPreviewOnly = !includeAllReviewRows && results.Count < totalCount
+                };
+            }
+            catch (Exception ex) { return new MopValidationSummary { Success = false, Error = ex.Message }; }
+        }
+
+        public async Task<string> GenerateSqlAsync(MopValidationRequest request)
+        {
+            ValidateRequest(request);
+            var mopTable = Sanitise(request.MopTable);
+            var prodTable = Sanitise(request.ProductionTable);
+            var qualCol = Sanitise(request.QualificationColumn);
+            var surnameCol = Sanitise(request.SurnameColumn);
+
+            return await Task.FromResult($@"-- MOP MODULE (Rule 75): Qualification Code and Surname Validation
+-- Checks if QUALIFICATION values from Mop table exist in Clinical Production
+-- and confirms matching Surname records
+
+-- Build reference qualification codes from Production table
+SELECT
+    UPPER(LTRIM(RTRIM(CAST([{qualCol}] AS nvarchar(255))))) AS ProdQualification,
+    UPPER(LTRIM(RTRIM(CAST([{surnameCol}] AS nvarchar(500))))) AS ProdSurname
+INTO #ProdQualifications
+FROM [{prodTable}]
+WHERE [{qualCol}] IS NOT NULL AND [{qualCol}] <> '';
+
+CREATE INDEX IDX_ProdQual ON #ProdQualifications(ProdQualification);
+
+-- Validate Mop against Production
+SELECT
+    UPPER(LTRIM(RTRIM(CAST(M.[{qualCol}] AS nvarchar(255))))) AS MopQual,
+    UPPER(LTRIM(RTRIM(CAST(M.[{surnameCol}] AS nvarchar(500))))) AS MopSurname,
+    CASE WHEN PQ.ProdQualification IS NOT NULL THEN 'PASS' ELSE 'FAIL' END AS Status,
+    ISNULL(PQ.ProdQualification, '') AS MatchedQual,
+    ISNULL(PQ.ProdSurname, '') AS MatchedSurname
+FROM [{mopTable}] M
+LEFT JOIN #ProdQualifications PQ
+    ON UPPER(LTRIM(RTRIM(CAST(M.[{qualCol}] AS nvarchar(255))))) = PQ.ProdQualification
+WHERE M.[{qualCol}] IS NOT NULL AND M.[{qualCol}] <> ''
+ORDER BY Status DESC, MopQual;
+
+DROP TABLE #ProdQualifications;");
+        }
+
+        public async Task<MopWorkspaceState?> GetCurrentWorkspaceStateAsync(int clientId, string? userEmail = null)
+        {
+            try
+            {
+                if (clientId <= 0) return null;
+
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var command = connection.CreateConfiguredCommand();
+                command.CommandText = @"
+SELECT TOP 1
+    RunID, HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
+    Status, RunTimestamp, ResultsJSON, WorkspaceSavedAt
+FROM dbo.ValidationRuns
+WHERE ClientID = @ClientID AND RuleNumber = 75
+ORDER BY IsCurrent DESC, RunTimestamp DESC;";
+                command.Parameters.AddWithValue("@ClientID", clientId);
+
+                await using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var runId = reader.GetInt32(0);
+                    var resultsJson = reader.IsDBNull(9) ? null : reader.GetString(9);
+                    MopValidationSummary? summary = null;
+                    if (!string.IsNullOrWhiteSpace(resultsJson))
+                    {
+                        try { summary = JsonConvert.DeserializeObject<MopValidationSummary>(ValidationPayloadCodec.Decode(resultsJson)); }
+                        catch { }
+                    }
+                    if (summary != null && summary.ReviewRows.Count > BrowserPreviewRowLimit)
+                        summary.ReviewRows = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
+
+                    var ws = new MopWorkspaceState
+                    {
+                        ClientId = clientId,
+                        LastRunId = runId,
+                        Server = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                        Database = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                        MopTable = reader.IsDBNull(3) ? "Mop" : reader.GetString(3),
+                        ProductionTable = reader.IsDBNull(4) ? "Clinical_Production" : reader.GetString(4),
+                        QualificationColumn = reader.IsDBNull(5) ? "QUALIFICATION" : reader.GetString(5),
+                        SurnameColumn = reader.IsDBNull(6) ? "Surname" : reader.GetString(6),
+                        LastRunStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        CurrentStatus = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        LastRunAt = reader.IsDBNull(8) ? null : reader.GetDateTime(8),
+                        Summary = summary
+                    };
+                    await reader.CloseAsync();
+                    ws.IsWorkspaceSaved = await QualSurnameModuleHelper.IsWorkspaceSavedAsync(connection, runId);
+
+                    int? userId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+                    if (userId.HasValue)
+                        ws.CurrentUserEngagementRole = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId.Value) ?? "";
+
+                    var (hasDA, currentSigned, currentComment) = await QualSurnameModuleHelper.GetSignoffStateAsync(
+                        connection, runId, userId, ws.CurrentUserEngagementRole);
+                    ws.HasDataAnalystSignoff = hasDA;
+                    ws.CurrentUserHasSignedOff = currentSigned;
+                    ws.CurrentUserSignoffComment = currentComment;
+
+                    if (ws.Summary != null) ws.Summary.SavedRunId = runId;
+                    return ws;
+                }
+            }
+            catch { }
+
+            try
+            {
+                var cached = _pendingValidationCache.GetPending<MopValidationRequest, MopValidationSummary>(75, clientId, userEmail ?? "");
+                if (cached?.Request is not null && cached.Summary is not null)
+                {
+                    var req = cached.Request;
+                    return new MopWorkspaceState
+                    {
+                        ClientId = clientId,
+                        Server = req.Server,
+                        Database = req.Database,
+                        Driver = req.Driver,
+                        MopTable = req.MopTable,
+                        ProductionTable = req.ProductionTable,
+                        QualificationColumn = req.QualificationColumn,
+                        SurnameColumn = req.SurnameColumn,
+                        Summary = cached.Summary,
+                        LastRunAt = DateTime.UtcNow
+                    };
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        public async Task<bool> SaveWorkspaceStateAsync(int clientId, MopValidationRequest config, string? userEmail = null)
+        {
+            try
+            {
+                if (clientId <= 0) return false;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT TOP 1 RunID FROM dbo.ValidationRuns WHERE ClientID = @ClientID AND RuleNumber = 75 ORDER BY IsCurrent DESC, RunTimestamp DESC;";
+                cmd.Parameters.AddWithValue("@ClientID", clientId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return false;
+                return await QualSurnameModuleHelper.MarkWorkspaceSavedAsync(connection, Convert.ToInt32(val));
+            }
+            catch { return false; }
+        }
+
+        public async Task<MopValidationSummary?> GetFullSummaryByRunIdAsync(int runId)
+        {
+            try
+            {
+                if (runId <= 0) return null;
+                await using var connection = await OpenSystemConnectionAsync();
+                await using var cmd = connection.CreateConfiguredCommand();
+                cmd.CommandText = "SELECT ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID;";
+                cmd.Parameters.AddWithValue("@RunID", runId);
+                var val = await cmd.ExecuteScalarAsync();
+                if (val == null || val == DBNull.Value) return null;
+                return JsonConvert.DeserializeObject<MopValidationSummary>(ValidationPayloadCodec.Decode(val.ToString()!));
+            }
+            catch { return null; }
+        }
+
+        // ── Helpers ────────────────────────────────────────────────────────────
+
+        private static string BuildConnectionString(string server, string database, string driver) =>
+            $"Server={server};Database={database};Trusted_Connection=True;TrustServerCertificate=True;Encrypt=False;Connection Timeout=180;";
+
+        private static string BuildPopulationCountSql(string mopTable, string prodTable, string qualCol) => $@"
+SELECT
+    COUNT(*) AS TotalTested,
+    SUM(CASE WHEN PQ.ProdQualification IS NOT NULL THEN 1 ELSE 0 END) AS MatchedCount,
+    SUM(CASE WHEN PQ.ProdQualification IS NULL THEN 1 ELSE 0 END) AS MissingCount
+FROM (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(CAST([{qualCol}] AS nvarchar(255))))) AS MopQual
+    FROM [{mopTable}]
+    WHERE [{qualCol}] IS NOT NULL AND [{qualCol}] <> ''
+) M
+LEFT JOIN (
+    SELECT DISTINCT UPPER(LTRIM(RTRIM(CAST([{qualCol}] AS nvarchar(255))))) AS ProdQualification
+    FROM [{prodTable}]
+    WHERE [{qualCol}] IS NOT NULL AND [{qualCol}] <> ''
+) PQ ON M.MopQual = PQ.ProdQualification;";
+
+        private static async Task<int> CountAsync(SqlConnection conn, string sql)
+        {
+            await using var cmd = conn.CreateConfiguredCommand();
+            cmd.CommandText = sql;
+            var result = await cmd.ExecuteScalarAsync();
+            return result is int count ? count : 0;
+        }
+
+        private static int GetInt(SqlDataReader reader, int ordinal) =>
+            reader.IsDBNull(ordinal) ? 0 : reader.GetInt32(ordinal);
+
+        private static string Sanitise(string? objectName)
+        {
+            if (string.IsNullOrWhiteSpace(objectName)) return "";
+            var trimmed = objectName.Trim().Replace("'", "").Replace("\"", "");
+            return trimmed.Length > 128 ? trimmed[..128] : trimmed;
+        }
+
+        private static void ValidateObjectName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Object name cannot be empty.");
+            if (name.Length > 128) throw new ArgumentException("Object name cannot exceed 128 characters.");
+        }
+
+        private static void ValidateRequest(MopVerifyRequest r)
+        {
+            if (string.IsNullOrWhiteSpace(r.Server)) throw new ArgumentException("Server must be specified.");
+            if (string.IsNullOrWhiteSpace(r.Database)) throw new ArgumentException("Database must be specified.");
+            if (string.IsNullOrWhiteSpace(r.MopTable)) throw new ArgumentException("Mop table must be specified.");
+            if (string.IsNullOrWhiteSpace(r.ProductionTable)) throw new ArgumentException("Production table must be specified.");
+        }
+
+        private static void ValidateRequest(MopValidationRequest r)
+        {
+            if (string.IsNullOrWhiteSpace(r.Server)) throw new ArgumentException("Server must be specified.");
+            if (string.IsNullOrWhiteSpace(r.Database)) throw new ArgumentException("Database must be specified.");
+            if (string.IsNullOrWhiteSpace(r.MopTable)) throw new ArgumentException("Mop table must be specified.");
+            if (string.IsNullOrWhiteSpace(r.ProductionTable)) throw new ArgumentException("Production table must be specified.");
+        }
+
+        private static string? FindFirst(List<string> items, string[] preferred, string[] contains)
+        {
+            foreach (var p in preferred)
+                if (items.Any(i => i.Equals(p, StringComparison.OrdinalIgnoreCase)))
+                    return items.First(i => i.Equals(p, StringComparison.OrdinalIgnoreCase));
+            foreach (var c in contains)
+                if (items.Any(i => i.Contains(c, StringComparison.OrdinalIgnoreCase)))
+                    return items.First(i => i.Contains(c, StringComparison.OrdinalIgnoreCase));
+            return null;
+        }
+
+        private static MopValidationSummary CloneSummary(MopValidationSummary s) =>
+            JsonConvert.DeserializeObject<MopValidationSummary>(JsonConvert.SerializeObject(s)) ?? new();
+
+        private static MopValidationRequest CloneRequest(MopValidationRequest r) =>
+            JsonConvert.DeserializeObject<MopValidationRequest>(JsonConvert.SerializeObject(r)) ?? new();
+
+        private async Task<int> SaveValidationRunAsync(MopValidationRequest request, MopValidationSummary summary, string? userEmail, string? userName)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            await EnsureClientNotArchivedAsync(connection, request.ClientId);
+            await MarkPreviousRunsHistoricalAsync(connection, request.ClientId, 75);
+
+            var systemUserId = await GetSystemUserIdByEmailAsync(connection, userEmail);
+            if (!systemUserId.HasValue)
+                throw new InvalidOperationException("The current analyst could not be resolved in the system database.");
+
+            var previousHash = await GetLatestValidationHashAsync(connection, request.ClientId, 75);
+
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"
+INSERT INTO dbo.ValidationRuns
+(ClientID, UserID, RuleNumber, RuleName, Status, TotalRecords, PassCount, FailCount, ExceptionRate, RunTimestamp,
+ HemisServer, AuditDatabase, StudTable, DeceasedTable, StudColumn, DeceasedColumn,
+ ExceptionsJSON, ResultsJSON, RunByUserName, LastEditedByUserName, LastEditedAt, PreviousHash, RecordHash, IsCurrent)
+VALUES
+(@ClientID, @UserID, 75, @RuleName, @Status, @TotalRecords, @PassCount, @FailCount, @ExceptionRate, GETDATE(),
+ @HemisServer, @AuditDatabase, @StudTable, @DeceasedTable, @StudColumn, @DeceasedColumn,
+ @ExceptionsJSON, @ResultsJSON, @RunByUserName, NULL, NULL, @PreviousHash, NULL, 1);
+SELECT CAST(SCOPE_IDENTITY() AS int);";
+            command.Parameters.AddWithValue("@ClientID", request.ClientId);
+            command.Parameters.AddWithValue("@UserID", systemUserId.Value);
+            command.Parameters.AddWithValue("@RuleName", "Mop Qualification Validation");
+            command.Parameters.AddWithValue("@Status", summary.Status ?? "");
+            command.Parameters.AddWithValue("@TotalRecords", summary.TotalValidated);
+            command.Parameters.AddWithValue("@PassCount", summary.PassCount);
+            command.Parameters.AddWithValue("@FailCount", summary.FailCount);
+            command.Parameters.AddWithValue("@ExceptionRate", summary.ExceptionRate);
+            command.Parameters.AddWithValue("@HemisServer", request.Server);
+            command.Parameters.AddWithValue("@AuditDatabase", request.Database);
+            command.Parameters.AddWithValue("@StudTable", request.MopTable);
+            command.Parameters.AddWithValue("@DeceasedTable", request.ProductionTable);
+            command.Parameters.AddWithValue("@StudColumn", request.QualificationColumn);
+            command.Parameters.AddWithValue("@DeceasedColumn", request.SurnameColumn);
+            command.Parameters.AddWithValue("@ExceptionsJSON", ValidationPayloadCodec.Encode(
+                JsonConvert.SerializeObject(summary.ReviewRows.Where(r => r.Status == "FAIL").ToList())));
+            command.Parameters.AddWithValue("@ResultsJSON", ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary)));
+            command.Parameters.AddWithValue("@RunByUserName", (object?)userName ?? DBNull.Value);
+            command.Parameters.AddWithValue("@PreviousHash", (object?)previousHash ?? DBNull.Value);
+
+            var value = await command.ExecuteScalarAsync();
+            var runId = Convert.ToInt32(value);
+
+            await using var hashCommand = connection.CreateConfiguredCommand();
+            hashCommand.CommandText = "UPDATE dbo.ValidationRuns SET RecordHash = @RecordHash WHERE RunID = @RunID;";
+            hashCommand.Parameters.AddWithValue("@RunID", runId);
+            hashCommand.Parameters.AddWithValue("@RecordHash", ComputeHash(
+                $"Mop|{runId}|{request.ClientId}|{systemUserId.Value}|{summary.Status}|{summary.TotalValidated}|{summary.PassCount}|{summary.FailCount}|{summary.ExceptionRate}|{previousHash}"));
+            await hashCommand.ExecuteNonQueryAsync();
+
+            return runId;
+        }
+
+        private async Task<SqlConnection> OpenSystemConnectionAsync()
+        {
+            var server = _configuration["SystemDatabase:Server"] ?? @"(localdb)\MSSQLLocalDB";
+            var database = _configuration["SystemDatabase:Name"] ?? "HEMISBaseSystem";
+            var trust = _configuration.GetValue("SystemDatabase:TrustServerCertificate", true);
+            var builder = new SqlConnectionStringBuilder
+            {
+                DataSource = server, InitialCatalog = database, IntegratedSecurity = true,
+                TrustServerCertificate = trust, Encrypt = false, ConnectTimeout = 180
+            };
+            var connection = new SqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+            return connection;
+        }
+
+        private static async Task<int?> GetSystemUserIdByEmailAsync(SqlConnection connection, string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return null;
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = "SELECT TOP 1 UserID FROM dbo.Users WHERE Email = @Email;";
+            command.Parameters.AddWithValue("@Email", email);
+            var value = await command.ExecuteScalarAsync();
+            return value == null || value == DBNull.Value ? null : Convert.ToInt32(value);
+        }
+
+        private static async Task EnsureClientNotArchivedAsync(SqlConnection connection, int clientId)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = "SELECT TOP 1 Status FROM dbo.Clients WHERE ClientID = @ClientID;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+            var status = Convert.ToString(await command.ExecuteScalarAsync());
+            if (string.Equals(status, "Archived", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Archived engagements are read-only.");
+        }
+
+        private static async Task MarkPreviousRunsHistoricalAsync(SqlConnection connection, int clientId, int ruleNumber)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"UPDATE dbo.ValidationRuns SET IsCurrent = 0
+WHERE ClientID = @ClientID AND RuleNumber = @RuleNumber AND IsCurrent = 1;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+            command.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        private static async Task<string?> GetLatestValidationHashAsync(SqlConnection connection, int clientId, int ruleNumber)
+        {
+            await using var command = connection.CreateConfiguredCommand();
+            command.CommandText = @"SELECT TOP 1 RecordHash FROM dbo.ValidationRuns
+WHERE ClientID = @ClientID AND RuleNumber = @RuleNumber AND RecordHash IS NOT NULL
+ORDER BY RunTimestamp DESC, RunID DESC;";
+            command.Parameters.AddWithValue("@ClientID", clientId);
+            command.Parameters.AddWithValue("@RuleNumber", ruleNumber);
+            var value = await command.ExecuteScalarAsync();
+            return value == null || value == DBNull.Value ? null : Convert.ToString(value);
+        }
+
+        public async Task AddOrUpdateSignoffAsync(int runId, string email, string comment)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            var clientId = await QualSurnameModuleHelper.GetClientIdForRunAsync(connection, runId)
+                ?? throw new InvalidOperationException("Validation run was not found.");
+            var userId = await GetSystemUserIdByEmailAsync(connection, email)
+                ?? throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
+            var role = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId)
+                ?? throw new InvalidOperationException("User is not assigned to this engagement.");
+            await QualSurnameModuleHelper.AddOrUpdateSignoffAsync(connection, runId, clientId, userId, role, comment);
+        }
+
+        public async Task RemoveSignoffAsync(int runId, string email)
+        {
+            await using var connection = await OpenSystemConnectionAsync();
+            var clientId = await QualSurnameModuleHelper.GetClientIdForRunAsync(connection, runId)
+                ?? throw new InvalidOperationException("Validation run was not found.");
+            var userId = await GetSystemUserIdByEmailAsync(connection, email)
+                ?? throw new InvalidOperationException("Reviewer could not be resolved in the system database.");
+            var role = await QualSurnameModuleHelper.GetEngagementRoleAsync(connection, clientId, userId)
+                ?? throw new InvalidOperationException("User is not assigned to this engagement.");
+            await QualSurnameModuleHelper.RemoveSignoffAsync(connection, runId, role);
+        }
+
+        private static string ComputeHash(string input)
+        {
+            using var sha = SHA256.Create();
+            return Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input)));
+        }
+    }
+}

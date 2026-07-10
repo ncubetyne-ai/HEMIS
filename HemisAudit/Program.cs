@@ -163,6 +163,7 @@ builder.Services.AddScoped<IRadiographyService, RadiographyService>();
 builder.Services.AddScoped<IPharmacyService, PharmacyService>();
 builder.Services.AddScoped<INursingService, NursingService>();
 builder.Services.AddScoped<IBiomedicalService, BiomedicalService>();
+builder.Services.AddScoped<IMopService, MopService>();
 builder.Services.AddScoped<IExportService, ExportService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddSingleton<IValidationOperationService, ValidationOperationService>();
@@ -606,6 +607,11 @@ app.MapControllerRoute(
     name: "biomedical-short",
     pattern: "Biomedical",
     defaults: new { controller = "Biomedical", action = "Index" });
+
+app.MapControllerRoute(
+    name: "mop-short",
+    pattern: "Mop",
+    defaults: new { controller = "Mop", action = "Index" });
 
 app.MapControllerRoute(
     name: "rule58-run",
