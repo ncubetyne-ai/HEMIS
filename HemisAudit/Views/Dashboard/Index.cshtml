@@ -1164,7 +1164,7 @@
         const longestLabelLength = (labels || []).reduce(function (max, label) {
             return Math.max(max, (label || '').length);
         }, 0);
-        const reservedLabelWidth = Math.min(Math.max(longestLabelLength * 14, 220), 320);
+        const reservedLabelWidth = Math.min(Math.max(longestLabelLength * 8, 120), 200);
         const chartHeight = labels.length <= 2
             ? Math.max(labels.length * 58, 110)
             : Math.min(Math.max(labels.length * 60, 150), 220);
@@ -1202,16 +1202,17 @@
                     },
                     y: {
                         afterFit: function (scale) {
-                            scale.width = Math.max(scale.width, reservedLabelWidth);
+                            const maxAllowed = Math.floor(scale.chart.width * 0.5);
+                            scale.width = Math.min(Math.max(scale.width, reservedLabelWidth), maxAllowed);
                         },
                         ticks: {
                             color: axisText,
                             autoSkip: false,
                             crossAlign: 'near',
-                            padding: 16,
+                            padding: 8,
                             font: {
-                                size: 15,
-                                weight: '700'
+                                size: 13,
+                                weight: '600'
                             }
                         },
                         grid: { color: border }
@@ -1219,7 +1220,7 @@
                 },
                 layout: {
                     padding: {
-                        left: 36,
+                        left: 0,
                         right: 8
                     }
                 },
