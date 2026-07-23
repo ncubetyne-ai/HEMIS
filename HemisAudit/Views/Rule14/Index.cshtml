@@ -505,6 +505,19 @@ window.toggleAccordion = function (section) {
         window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signoffLocked, {
             allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadSqlBtn', '#removeSignoffBtn']
         });
+        applyWorkspaceAccessMode(canEdit);
+    }
+
+    function applyWorkspaceAccessMode(canEditWorkspace) {
+        ['body-connection', 'body-config'].forEach(function(id) {
+            var body = document.getElementById(id);
+            if (!body) return;
+            body.style.opacity = canEditWorkspace ? '' : '0.45';
+            body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+            body.querySelectorAll('input, select, textarea, button').forEach(function(el) {
+                el.disabled = !canEditWorkspace;
+            });
+        });
     }
 
     function destroyCharts() {

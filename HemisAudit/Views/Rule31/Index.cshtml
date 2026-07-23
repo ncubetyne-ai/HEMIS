@@ -866,10 +866,23 @@
         window.ruleWorkspaceUi.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signedOffLock, {
             allow: ['#downloadAllBtn', '#downloadExcelBtn', '#downloadCsvBtn', '#downloadRemainingBtn', '#downloadSqlBtn', '#removeSignoffBtn']
         });
+        applyWorkspaceAccessMode(canEditWorkspace);
 
         if (!state.currentRunId) {
             setWorkspaceRunState('No saved run loaded', 'neutral');
         }
+    }
+
+    function applyWorkspaceAccessMode(canEditWorkspace) {
+        ['body-connection', 'body-config'].forEach(function(id) {
+            var body = document.getElementById(id);
+            if (!body) return;
+            body.style.opacity = canEditWorkspace ? '' : '0.45';
+            body.style.filter = canEditWorkspace ? '' : 'grayscale(0.15)';
+            body.querySelectorAll('input, select, textarea, button').forEach(function(el) {
+                el.disabled = !canEditWorkspace;
+            });
+        });
     }
 
     async function markWorkspaceDirty() {

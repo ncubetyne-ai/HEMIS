@@ -519,6 +519,11 @@ window.r48Tab = function(tab) {
         var sw = g('r48SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
         var so = g('r48SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
         show('r48RemoveSignoffBtn', signed);
+        window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signed, {
+            allow: ['#r48RemoveSignoffBtn', '#r48DlAllBtn', '#r48DlExcel', '#r48DlCsv', '#r48DlExcCsv', '#r48DlSql']
+        });
     }
 
     window.r48OnClientChange = function(val) {

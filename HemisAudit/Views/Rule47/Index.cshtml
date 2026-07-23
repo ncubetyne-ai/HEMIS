@@ -523,6 +523,11 @@ window.r47Tab = function(tab) {
         var sw = g('r47SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
         var so = g('r47SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
         show('r47RemoveSignoffBtn', signed);
+        window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signed, {
+            allow: ['#r47RemoveSignoffBtn', '#r47DlAllBtn', '#r47DlExcel', '#r47DlCsv', '#r47DlExcCsv', '#r47DlSql']
+        });
     }
 
     window.r47OnClientChange = function(val) {

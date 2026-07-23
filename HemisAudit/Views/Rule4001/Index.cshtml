@@ -470,8 +470,8 @@ window.r4001Tab = function(tab) {
         // Lock the whole configuration shell after signoff
         window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
         window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
-        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.action-bar'], signed, {
-            except: ['r4001SignoffBtn', 'r4001RemoveSignoffBtn', 'r4001SaveBtn', 'r4001DlAllBtn']
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signed, {
+            allow: ['#r4001RemoveSignoffBtn', '#r4001DlAllBtn']
         });
     }
 

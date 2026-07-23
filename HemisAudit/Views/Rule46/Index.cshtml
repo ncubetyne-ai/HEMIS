@@ -408,6 +408,11 @@ window.r46Tab = function(tab) {
 
         var sqlBtn = g('r46DlSqlBtn');
         if (sqlBtn) sqlBtn.disabled = !st.runId;
+        window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.workspace-signoff-actions', '.action-bar'], signed, {
+            allow: ['#r46RemoveSignoffBtn', '#r46DlExcelBtn', '#r46DlCsvBtn', '#r46DlSqlBtn']
+        });
     }
 
     function applyWsMeta(ws) {
