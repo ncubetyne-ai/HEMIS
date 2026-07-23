@@ -128,6 +128,7 @@ builder.Services.AddScoped<IRule37Service, Rule37Service>();
 builder.Services.AddScoped<IRule38Service, Rule38Service>();
 builder.Services.AddScoped<IRule39Service, Rule39Service>();
 builder.Services.AddScoped<IRule40Service, Rule40Service>();
+builder.Services.AddScoped<IRule4001Service, Rule4001Service>();
 builder.Services.AddScoped<IRule41Service, Rule41Service>();
 builder.Services.AddScoped<IRule45Service, Rule45Service>();
 builder.Services.AddScoped<IRule47Service, Rule47Service>();

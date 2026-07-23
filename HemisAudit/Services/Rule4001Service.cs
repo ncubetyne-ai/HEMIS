@@ -8,35 +8,15 @@ using HemisAudit.ViewModels;
 
 namespace HemisAudit.Services
 {
-    public class Rule40Service : IRule40Service
+    public class Rule4001Service : IRule4001Service
     {
         private const int BrowserPreviewRowLimit = 10;
         private const int ExceptionSaveLimit     = 5000;
         private const int AgreeSaveLimit         = 200;
 
-        private static readonly Rule40ColumnPair[] DefaultPairs =
-        [
-            new() { ValpacCol="_011", AsciiCol="_011", Label="Date of Birth" },
-            new() { ValpacCol="_012", AsciiCol="_012", Label="Gender" },
-            new() { ValpacCol="_013", AsciiCol="_013", Label="Race" },
-            new() { ValpacCol="_014", AsciiCol="_014", Label="Nationality" },
-            new() { ValpacCol="_038", AsciiCol="_038", Label="Empl. Commencement" },
-            new() { ValpacCol="_042", AsciiCol="_042", Label="Full/Part-time" },
-        ];
-
-        private static readonly Dictionary<string, string> ColumnLabels = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["_011"] = "Date of Birth",
-            ["_012"] = "Gender",
-            ["_013"] = "Race",
-            ["_014"] = "Nationality",
-            ["_038"] = "Empl. Commencement",
-            ["_042"] = "Full/Part-time",
-        };
-
         private readonly IConfiguration _configuration;
 
-        public Rule40Service(IConfiguration configuration)
+        public Rule4001Service(IConfiguration configuration)
         {
             _configuration = configuration;
         }
@@ -109,7 +89,7 @@ namespace HemisAudit.Services
             catch (Exception ex) { return new DatabaseListResult { Success = false, Error = ex.Message }; }
         }
 
-        public async Task<Rule40TableDiscoveryResult> GetTablesAsync(string server, string database, string driver)
+        public async Task<Rule4001TableDiscoveryResult> GetTablesAsync(string server, string database, string driver)
         {
             try
             {
@@ -120,45 +100,45 @@ namespace HemisAudit.Services
                 await using var reader = await cmd.ExecuteReaderAsync();
                 var tables = new List<string>();
                 while (await reader.ReadAsync()) tables.Add(reader.GetString(0));
-                return new Rule40TableDiscoveryResult
+                return new Rule4001TableDiscoveryResult
                 {
                     Success         = true,
                     Tables          = tables,
                     AutoValpacTable = FindFirst(tables, ["dbo_PROF", "H16PROF"], ["PROF", "VALPAC"]),
-                    AutoAsciiTable  = FindFirst(tables, [], ["ASCII", "ascii"])
+                    AutoSfteTable   = FindFirst(tables, ["2025H16SFTE", "H16SFTE"], ["SFTE"])
                 };
             }
-            catch (Exception ex) { return new Rule40TableDiscoveryResult { Success = false, Error = ex.Message }; }
+            catch (Exception ex) { return new Rule4001TableDiscoveryResult { Success = false, Error = ex.Message }; }
         }
 
-        public async Task<Rule40VerifyResult> VerifyTablesAsync(Rule40VerifyRequest request)
+        public async Task<Rule4001VerifyResult> VerifyTablesAsync(Rule4001VerifyRequest request)
         {
             try
             {
                 ValidateObjectName(request.ValpacTable);
-                ValidateObjectName(request.AsciiTable);
+                ValidateObjectName(request.SfteTable);
                 await using var conn = new SqlConnection(BuildConnectionString(request.Server, request.Database, request.Driver));
                 await conn.OpenAsync();
                 var vt = Sanitise(request.ValpacTable);
-                var at = Sanitise(request.AsciiTable);
-                return new Rule40VerifyResult
+                var st = Sanitise(request.SfteTable);
+                return new Rule4001VerifyResult
                 {
-                    Success     = true,
+                    Success    = true,
                     ValpacCount = await CountAsync(conn, $"SELECT COUNT(*) FROM [{vt}];"),
-                    AsciiCount  = await CountAsync(conn, $"SELECT COUNT(*) FROM [{at}];")
+                    SfteCount   = await CountAsync(conn, $"SELECT COUNT(*) FROM [{st}];")
                 };
             }
-            catch (Exception ex) { return new Rule40VerifyResult { Success = false, Error = ex.Message }; }
+            catch (Exception ex) { return new Rule4001VerifyResult { Success = false, Error = ex.Message }; }
         }
 
         // ── Validation ────────────────────────────────────────────────────────
 
-        public async Task<Rule40ValidationSummary> RunValidationAsync(Rule40ValidationRequest request, string? userEmail = null, string? userName = null)
+        public async Task<Rule4001ValidationSummary> RunValidationAsync(Rule4001ValidationRequest request, string? userEmail = null, string? userName = null)
         {
             try
             {
                 ValidateObjectName(request.ValpacTable);
-                ValidateObjectName(request.AsciiTable);
+                ValidateObjectName(request.SfteTable);
 
                 var summary = await AnalyseAsync(request);
 
@@ -168,97 +148,68 @@ namespace HemisAudit.Services
                 ApplyBrowserPreview(summary);
                 return summary;
             }
-            catch (Exception ex) { return new Rule40ValidationSummary { Success = false, Error = ex.Message }; }
+            catch (Exception ex) { return new Rule4001ValidationSummary { Success = false, Error = ex.Message }; }
         }
 
-        private async Task<Rule40ValidationSummary> AnalyseAsync(Rule40ValidationRequest req)
+        private async Task<Rule4001ValidationSummary> AnalyseAsync(Rule4001ValidationRequest req)
         {
-            var pairs   = (req.Pairs?.Count > 0 ? req.Pairs : null) ?? DefaultPairs.ToList();
-            var allCols = pairs.SelectMany(p => new[] { p.ValpacCol, p.AsciiCol }).Append("_037").Distinct().ToList();
-
             await using var conn = new SqlConnection(BuildConnectionString(req.Server, req.Database, req.Driver));
             await conn.OpenAsync();
 
-            var valpacMap = await LoadTableAsync(conn, req.ValpacTable, "_037", allCols);
-            var asciiMap  = await LoadTableAsync(conn, req.AsciiTable,  "_037", allCols);
+            var valpacKeys = await LoadKeysAsync(conn, req.ValpacTable, "_037");
+            var sfteKeys   = await LoadKeysAsync(conn, req.SfteTable,   "_037");
 
-            var allKeys = valpacMap.Keys
-                .Union(asciiMap.Keys, StringComparer.OrdinalIgnoreCase)
+            var allKeys = valpacKeys.Keys
+                .Union(sfteKeys.Keys, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(k => k)
                 .ToList();
 
-            var exceptionRows = new List<Rule40ReconcRow>();
-            var agreeRows     = new List<Rule40ReconcRow>();
+            var exceptionRows = new List<Rule4001ReconcRow>();
+            var agreeRows     = new List<Rule4001ReconcRow>();
             int rowNo = 0;
 
             foreach (var normKey in allKeys)
             {
                 rowNo++;
-                var vRow    = valpacMap.GetValueOrDefault(normKey);
-                var aRow    = asciiMap.GetValueOrDefault(normKey);
-                var staffNo = vRow?.GetValueOrDefault("_037")?.Trim()
-                           ?? aRow?.GetValueOrDefault("_037")?.Trim()
-                           ?? normKey;
+                var inValpac = valpacKeys.TryGetValue(normKey, out var rawValpac);
+                var inSfte   = sfteKeys.TryGetValue(normKey,   out var rawSfte);
+                var staffNo  = (rawValpac ?? rawSfte ?? normKey).Trim();
 
-                var row   = new Rule40ReconcRow { RowNumber = rowNo, StaffNumber = staffNo };
-                var diffs = new List<string>();
+                var row = new Rule4001ReconcRow { RowNumber = rowNo, StaffNumber = staffNo };
 
-                if (vRow == null)
-                {
-                    row.OverallResult  = "MISSING-VALPAC";
-                    row.DisagreeDetail = $"Staff {staffNo}: in ASCII but not in VALPAC";
-                    foreach (var p in pairs)
-                        row.Fields[p.Label] = new Rule40FieldValue { AsciiValue = Disp(aRow?.GetValueOrDefault(p.AsciiCol)), Match = "MISSING" };
-                }
-                else if (aRow == null)
-                {
-                    row.OverallResult  = "MISSING-ASCII";
-                    row.DisagreeDetail = $"Staff {staffNo}: in VALPAC but not in ASCII";
-                    foreach (var p in pairs)
-                        row.Fields[p.Label] = new Rule40FieldValue { ValpacValue = Disp(vRow.GetValueOrDefault(p.ValpacCol)), Match = "MISSING" };
-                }
+                if (!inValpac)
+                    row.OverallResult = "MISSING-VALPAC";
+                else if (!inSfte)
+                    row.OverallResult = "MISSING-H16SFTE";
                 else
-                {
-                    foreach (var p in pairs)
-                    {
-                        var vv    = Disp(vRow.GetValueOrDefault(p.ValpacCol));
-                        var av    = Disp(aRow.GetValueOrDefault(p.AsciiCol));
-                        var match = Norm(vv) == Norm(av) ? "AGREE" : "DISAGREE";
-                        row.Fields[p.Label] = new Rule40FieldValue { ValpacValue = vv, AsciiValue = av, Match = match };
-                        if (match == "DISAGREE") diffs.Add(p.Label);
-                    }
-                    row.OverallResult  = diffs.Count == 0 ? "AGREE" : "DISAGREE";
-                    row.DisagreeDetail = string.Join(", ", diffs);
-                }
+                    row.OverallResult = "AGREE";
 
                 if (row.OverallResult == "AGREE") agreeRows.Add(row);
                 else                              exceptionRows.Add(row);
             }
 
             var exCount = exceptionRows.Count;
-            return new Rule40ValidationSummary
+            return new Rule4001ValidationSummary
             {
                 Success              = true,
                 Timestamp            = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 Server               = req.Server,
                 Database             = req.Database,
                 ValpacTable          = req.ValpacTable,
-                AsciiTable           = req.AsciiTable,
+                SfteTable            = req.SfteTable,
                 ClientId             = req.ClientId,
                 TotalCount           = rowNo,
                 AgreeCount           = agreeRows.Count,
-                DisagreeCount        = exceptionRows.Count(r => r.OverallResult == "DISAGREE"),
-                MissingInAsciiCount  = exceptionRows.Count(r => r.OverallResult == "MISSING-ASCII"),
+                MissingInSfteCount   = exceptionRows.Count(r => r.OverallResult == "MISSING-H16SFTE"),
                 MissingInValpacCount = exceptionRows.Count(r => r.OverallResult == "MISSING-VALPAC"),
                 ExceptionRate        = rowNo == 0 ? 0m : Math.Round(exCount * 100m / rowNo, 2),
                 Status               = exCount == 0 ? "PASS" : "FAIL",
-                Pairs                = pairs,
                 ReviewRows           = exceptionRows.Take(ExceptionSaveLimit).ToList(),
                 AgreeSample          = agreeRows.Take(AgreeSaveLimit).ToList()
             };
         }
 
-        private static void ApplyBrowserPreview(Rule40ValidationSummary? summary)
+        private static void ApplyBrowserPreview(Rule4001ValidationSummary? summary)
         {
             if (summary == null) return;
             summary.ReviewRows  = summary.ReviewRows.Take(BrowserPreviewRowLimit).ToList();
@@ -267,16 +218,16 @@ namespace HemisAudit.Services
 
         // ── Save / Load ───────────────────────────────────────────────────────
 
-        private async Task<int> SaveValidationRunAsync(Rule40ValidationRequest req, Rule40ValidationSummary summary, string? userEmail, string? userName)
+        private async Task<int> SaveValidationRunAsync(Rule4001ValidationRequest req, Rule4001ValidationSummary summary, string? userEmail, string? userName)
         {
             await using var conn = await OpenSystemConnectionAsync();
             await EnsureClientNotArchivedAsync(conn, req.ClientId);
-            await MarkPreviousRunsHistoricalAsync(conn, req.ClientId, 40);
+            await MarkPreviousRunsHistoricalAsync(conn, req.ClientId, 4001);
 
             var userId = await GetUserIdByEmailAsync(conn, userEmail)
                 ?? throw new InvalidOperationException("Analyst not found in system database.");
 
-            var prevHash = await GetLatestHashAsync(conn, req.ClientId, 40);
+            var prevHash = await GetLatestHashAsync(conn, req.ClientId, 4001);
             var json     = ValidationPayloadCodec.Encode(JsonConvert.SerializeObject(summary));
 
             await using var cmd = conn.CreateConfiguredCommand();
@@ -287,20 +238,20 @@ INSERT INTO dbo.ValidationRuns
  ExceptionsJSON,ResultsJSON,RunByUserName,LastEditedByUserName,LastEditedAt,PreviousHash,RecordHash,IsCurrent)
 OUTPUT INSERTED.RunID
 VALUES
-(@ClientID,@UserID,40,'PROF ASCII Staff Agreement',@Status,@Total,@Pass,@Fail,@Rate,GETDATE(),
- @Server,@Database,@ValpacTable,@AsciiTable,'_037','_037',
+(@ClientID,@UserID,4001,'PROF VALPAC vs H16SFTE Staff Presence',@Status,@Total,@Pass,@Fail,@Rate,GETDATE(),
+ @Server,@Database,@ValpacTable,@SfteTable,'_037','_037',
  NULL,@JSON,@RunBy,NULL,NULL,@PrevHash,NULL,1);";
             cmd.Parameters.AddWithValue("@ClientID",    req.ClientId);
             cmd.Parameters.AddWithValue("@UserID",      userId);
             cmd.Parameters.AddWithValue("@Status",      summary.Status);
             cmd.Parameters.AddWithValue("@Total",       summary.TotalCount);
             cmd.Parameters.AddWithValue("@Pass",        summary.AgreeCount);
-            cmd.Parameters.AddWithValue("@Fail",        summary.DisagreeCount + summary.MissingInAsciiCount + summary.MissingInValpacCount);
+            cmd.Parameters.AddWithValue("@Fail",        summary.MissingInSfteCount + summary.MissingInValpacCount);
             cmd.Parameters.AddWithValue("@Rate",        summary.ExceptionRate);
             cmd.Parameters.AddWithValue("@Server",      req.Server);
             cmd.Parameters.AddWithValue("@Database",    req.Database);
             cmd.Parameters.AddWithValue("@ValpacTable", req.ValpacTable);
-            cmd.Parameters.AddWithValue("@AsciiTable",  req.AsciiTable);
+            cmd.Parameters.AddWithValue("@SfteTable",   req.SfteTable);
             cmd.Parameters.AddWithValue("@JSON",        json);
             cmd.Parameters.AddWithValue("@RunBy",       (object?)userName ?? (object?)userEmail ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@PrevHash",    (object?)prevHash ?? DBNull.Value);
@@ -311,13 +262,13 @@ VALUES
             await using var hashCmd = conn.CreateConfiguredCommand();
             hashCmd.CommandText = "UPDATE dbo.ValidationRuns SET RecordHash=@Hash WHERE RunID=@RunID;";
             hashCmd.Parameters.AddWithValue("@RunID", runId);
-            hashCmd.Parameters.AddWithValue("@Hash",  ComputeHash($"Rule40|{runId}|{req.ClientId}|{summary.Status}|{summary.TotalCount}|{summary.Timestamp}|{prevHash}"));
+            hashCmd.Parameters.AddWithValue("@Hash",  ComputeHash($"Rule4001|{runId}|{req.ClientId}|{summary.Status}|{summary.TotalCount}|{summary.Timestamp}|{prevHash}"));
             await hashCmd.ExecuteNonQueryAsync();
 
             return runId;
         }
 
-        public async Task<Rule40WorkspaceState?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null)
+        public async Task<Rule4001WorkspaceState?> GetCurrentWorkspaceStateAsync(int clientId, string? currentUserEmail = null)
         {
             await using var conn      = await OpenSystemConnectionAsync();
             var currentUserId = await GetUserIdByEmailAsync(conn, currentUserEmail);
@@ -329,14 +280,14 @@ SELECT TOP 1
     ISNULL(vr.HemisServer,'')    AS Server,
     ISNULL(vr.AuditDatabase,'') AS [Database],
     ISNULL(vr.StudTable,'')      AS ValpacTable,
-    ISNULL(vr.DeceasedTable,'') AS AsciiTable,
+    ISNULL(vr.DeceasedTable,'') AS SfteTable,
     ISNULL(vr.Status,'')         AS Status,
     vr.ResultsJSON,
     vr.WorkspaceSavedAt,
     vr.LastEditedByUserName,
     vr.LastEditedAt
 FROM dbo.ValidationRuns vr
-WHERE vr.ClientID = @ClientID AND vr.RuleNumber = 40 AND vr.IsCurrent = 1
+WHERE vr.ClientID = @ClientID AND vr.RuleNumber = 4001 AND vr.IsCurrent = 1
 ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             cmd.Parameters.AddWithValue("@ClientID", clientId);
 
@@ -345,14 +296,14 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
 
             var runId   = reader.GetInt32(0);
             var summary = DeserializeSummary(reader.IsDBNull(7) ? null : reader.GetString(7));
-            var workspace = new Rule40WorkspaceState
+            var workspace = new Rule4001WorkspaceState
             {
                 ClientId             = reader.GetInt32(1),
                 RunId                = runId,
                 Server               = reader.GetString(2),
                 Database             = reader.GetString(3),
                 ValpacTable          = reader.GetString(4),
-                AsciiTable           = reader.GetString(5),
+                SfteTable            = reader.GetString(5),
                 CurrentStatus        = reader.GetString(6),
                 IsWorkspaceSaved     = !reader.IsDBNull(8),
                 LastEditedByUserName = reader.IsDBNull(9)  ? null : reader.GetString(9),
@@ -377,7 +328,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
             return workspace;
         }
 
-        public async Task<bool> SaveWorkspaceStateAsync(int clientId, Rule40ValidationRequest request, string? userEmail)
+        public async Task<bool> SaveWorkspaceStateAsync(int clientId, Rule4001ValidationRequest request, string? userEmail)
         {
             try
             {
@@ -396,7 +347,7 @@ ORDER BY vr.RunTimestamp DESC, vr.RunID DESC;";
                 await using var cmd = conn.CreateConfiguredCommand();
                 cmd.CommandText = @"
 UPDATE dbo.ValidationRuns
-SET StudTable = @ValpacTable, DeceasedTable = @AsciiTable,
+SET StudTable = @ValpacTable, DeceasedTable = @SfteTable,
     WorkspaceSavedAt = GETDATE(), LastEditedByUserName = @EditedBy, LastEditedAt = GETDATE(),
     Status = 'Needs Review', IsCurrent = 1,
     PreviousHash = @PrevHash, RecordHash = @Hash
@@ -404,10 +355,10 @@ WHERE RunID = @RunID AND ClientID = @ClientID;";
                 cmd.Parameters.AddWithValue("@RunID",       request.RunId.Value);
                 cmd.Parameters.AddWithValue("@ClientID",    clientId);
                 cmd.Parameters.AddWithValue("@ValpacTable", request.ValpacTable);
-                cmd.Parameters.AddWithValue("@AsciiTable",  request.AsciiTable);
+                cmd.Parameters.AddWithValue("@SfteTable",   request.SfteTable);
                 cmd.Parameters.AddWithValue("@EditedBy",    (object?)userEmail ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@PrevHash",    (object?)prevHash ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@Hash",        ComputeHash($"WorkspaceSave|Rule40|{request.RunId.Value}|{clientId}|{userEmail}|{DateTime.UtcNow:o}|{prevHash}"));
+                cmd.Parameters.AddWithValue("@Hash",        ComputeHash($"WorkspaceSave|Rule4001|{request.RunId.Value}|{clientId}|{userEmail}|{DateTime.UtcNow:o}|{prevHash}"));
                 await cmd.ExecuteNonQueryAsync();
 
                 return true;
@@ -415,11 +366,11 @@ WHERE RunID = @RunID AND ClientID = @ClientID;";
             catch { return false; }
         }
 
-        public async Task<Rule40ValidationSummary?> GetFullSummaryByRunIdAsync(int runId)
+        public async Task<Rule4001ValidationSummary?> GetFullSummaryByRunIdAsync(int runId)
         {
             await using var conn = await OpenSystemConnectionAsync();
             await using var cmd  = conn.CreateConfiguredCommand();
-            cmd.CommandText = "SELECT TOP 1 ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID AND RuleNumber = 40;";
+            cmd.CommandText = "SELECT TOP 1 ResultsJSON FROM dbo.ValidationRuns WHERE RunID = @RunID AND RuleNumber = 4001;";
             cmd.Parameters.AddWithValue("@RunID", runId);
             var json = Convert.ToString(await cmd.ExecuteScalarAsync());
             return string.IsNullOrWhiteSpace(json) ? null : DeserializeSummary(json);
@@ -479,90 +430,65 @@ ELSE
 
         // ── SQL generation ────────────────────────────────────────────────────
 
-        public string GenerateSql(Rule40ValidationRequest request)
+        public string GenerateSql(Rule4001ValidationRequest request)
         {
-            var vt    = Sanitise(request.ValpacTable);
-            var at    = Sanitise(request.AsciiTable);
-            var pairs = (request.Pairs?.Count > 0 ? request.Pairs : null) ?? DefaultPairs.ToList();
-
-            var colLines = string.Join(",\n", pairs.Select(p =>
-            {
-                var vc = Sanitise(p.ValpacCol); var ac = Sanitise(p.AsciiCol);
-                return $"    v.[{vc}] AS [VALPAC_{vc}],\n    a.[{ac}] AS [ASCII_{ac}],\n" +
-                       $"    CASE WHEN UPPER(LTRIM(RTRIM(ISNULL(CAST(v.[{vc}] AS NVARCHAR(500)),''))))=UPPER(LTRIM(RTRIM(ISNULL(CAST(a.[{ac}] AS NVARCHAR(500)),'')))) THEN 'AGREE' ELSE 'DISAGREE' END AS [MATCH_{vc}]  -- {p.Label}";
-            }));
-
-            var agreeWhen = string.Join("\n        AND ", pairs.Select(p =>
-            {
-                var vc = Sanitise(p.ValpacCol); var ac = Sanitise(p.AsciiCol);
-                return $"UPPER(LTRIM(RTRIM(ISNULL(CAST(v.[{vc}] AS NVARCHAR(500)),''))))=UPPER(LTRIM(RTRIM(ISNULL(CAST(a.[{ac}] AS NVARCHAR(500)),''))))";
-            }));
+            var vt = Sanitise(request.ValpacTable);
+            var st = Sanitise(request.SfteTable);
 
             return $@"-- ============================================================
--- HEMIS RULE 40 – PROF VALPAC vs ASCII Staff Agreement
+-- HEMIS RULE 40.1 – PROF VALPAC vs H16SFTE Staff Presence
 -- Generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}
 -- Database  : {request.Database}
 -- VALPAC    : [{vt}]
--- ASCII     : [{at}]
+-- H16SFTE   : [{st}]
 -- Key       : _037 (Staff Number)
--- Compared  : {string.Join(", ", pairs.Select(p => p.Label))}
 -- ============================================================
 
 SELECT
-    COALESCE(v.[_037], a.[_037]) AS Staff_Number,
-{colLines},
+    COALESCE(v.[_037], s.[_037]) AS Staff_Number,
     CASE
         WHEN v.[_037] IS NULL THEN 'MISSING-VALPAC'
-        WHEN a.[_037] IS NULL THEN 'MISSING-ASCII'
-        WHEN {agreeWhen} THEN 'AGREE'
-        ELSE 'DISAGREE'
+        WHEN s.[_037] IS NULL THEN 'MISSING-H16SFTE'
+        ELSE 'AGREE'
     END AS Overall_Result
 FROM [{vt}] v
-FULL OUTER JOIN [{at}] a
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[_037] AS NVARCHAR(200)))))
+FULL OUTER JOIN [{st}] s
+    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[_037] AS NVARCHAR(200)))))
 ORDER BY Staff_Number;
 
 -- ── Summary ─────────────────────────────────────────────────────
 SELECT
-    COUNT(*)                                                                                          AS Total,
-    SUM(CASE WHEN v.[_037] IS NOT NULL AND a.[_037] IS NOT NULL AND ({agreeWhen}) THEN 1 ELSE 0 END) AS Agree,
-    SUM(CASE WHEN v.[_037] IS NOT NULL AND a.[_037] IS NOT NULL AND NOT ({agreeWhen}) THEN 1 ELSE 0 END) AS Disagree,
-    SUM(CASE WHEN a.[_037] IS NULL THEN 1 ELSE 0 END) AS Missing_In_ASCII,
-    SUM(CASE WHEN v.[_037] IS NULL THEN 1 ELSE 0 END) AS Missing_In_VALPAC
+    COUNT(*)                                              AS Total,
+    SUM(CASE WHEN v.[_037] IS NOT NULL AND s.[_037] IS NOT NULL THEN 1 ELSE 0 END) AS Agree,
+    SUM(CASE WHEN s.[_037] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_H16SFTE,
+    SUM(CASE WHEN v.[_037] IS NULL THEN 1 ELSE 0 END)    AS Missing_In_VALPAC
 FROM [{vt}] v
-FULL OUTER JOIN [{at}] a
-    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(a.[_037] AS NVARCHAR(200)))));
+FULL OUTER JOIN [{st}] s
+    ON UPPER(LTRIM(RTRIM(CAST(v.[_037] AS NVARCHAR(200))))) = UPPER(LTRIM(RTRIM(CAST(s.[_037] AS NVARCHAR(200)))));
 -- ============================================================".Trim();
         }
 
         // ── Internal DB helpers ───────────────────────────────────────────────
 
-        private static async Task<Dictionary<string, Dictionary<string, string?>>> LoadTableAsync(
-            SqlConnection conn, string tableName, string keyCol, IEnumerable<string> columns)
+        private static async Task<Dictionary<string, string>> LoadKeysAsync(
+            SqlConnection conn, string tableName, string keyCol)
         {
             ValidateObjectName(tableName);
-            var tbl     = Sanitise(tableName);
-            var selCols = columns.Select(c => $"[{Sanitise(c)}]").Distinct().ToList();
-            var keyExpr = $"[{Sanitise(keyCol)}]";
-            if (!selCols.Contains(keyExpr)) selCols.Insert(0, keyExpr);
+            var tbl = Sanitise(tableName);
+            var col = Sanitise(keyCol);
 
             await using var cmd = conn.CreateConfiguredCommand();
             cmd.CommandTimeout = SqlLargeDataExtensions.LargeDataCommandTimeoutSeconds;
-            cmd.CommandText = $"SELECT {string.Join(", ", selCols)} FROM [{tbl}];";
+            cmd.CommandText = $"SELECT [{col}] FROM [{tbl}] WHERE [{col}] IS NOT NULL;";
             await using var reader = await cmd.ExecuteReaderAsync();
-            var fieldNames = Enumerable.Range(0, reader.FieldCount).Select(i => reader.GetName(i)).ToList();
-            var map        = new Dictionary<string, Dictionary<string, string?>>(StringComparer.OrdinalIgnoreCase);
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             while (await reader.ReadAsync())
             {
-                var row = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < reader.FieldCount; i++)
-                    row[fieldNames[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i)?.ToString()?.Trim();
-
-                var rawKey  = row.GetValueOrDefault(keyCol);
-                var normKey = Norm(rawKey);
-                if (!string.IsNullOrEmpty(normKey) && !map.ContainsKey(normKey))
-                    map[normKey] = row;
+                var raw  = reader.IsDBNull(0) ? null : reader.GetValue(0)?.ToString()?.Trim();
+                var norm = Norm(raw);
+                if (!string.IsNullOrEmpty(norm) && !map.ContainsKey(norm))
+                    map[norm] = raw ?? norm;
             }
             return map;
         }
@@ -712,8 +638,6 @@ SELECT
         private static string Norm(string? v) =>
             string.IsNullOrWhiteSpace(v) ? "" : System.Text.RegularExpressions.Regex.Replace(v.Trim().ToUpperInvariant(), @"\s+", " ");
 
-        private static string Disp(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v.Trim();
-
         private static string Sanitise(string name) =>
             name.Replace("]", "").Replace("[", "").Replace("'", "").Replace(";", "").Trim();
 
@@ -746,10 +670,10 @@ SELECT
             return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(input)));
         }
 
-        private static Rule40ValidationSummary? DeserializeSummary(string? json)
+        private static Rule4001ValidationSummary? DeserializeSummary(string? json)
         {
             if (string.IsNullOrWhiteSpace(json)) return null;
-            try { return JsonConvert.DeserializeObject<Rule40ValidationSummary>(ValidationPayloadCodec.Decode(json)); }
+            try { return JsonConvert.DeserializeObject<Rule4001ValidationSummary>(ValidationPayloadCodec.Decode(json)); }
             catch { return null; }
         }
 
