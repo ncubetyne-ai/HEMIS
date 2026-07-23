@@ -526,6 +526,12 @@ window.r40Tab = function(tab) {
         var sw = g('r40SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
         var so = g('r40SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
         show('r40RemoveSignoffBtn', signed);
+        // Lock the whole configuration shell after signoff
+        window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.action-bar'], signed, {
+            except: ['r40SignoffBtn', 'r40RemoveSignoffBtn', 'r40SaveBtn', 'r40DlAllBtn']
+        });
     }
 
     /* ── Client change ── */

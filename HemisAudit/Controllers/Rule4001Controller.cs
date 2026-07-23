@@ -1,3 +1,4 @@
+using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -247,7 +248,7 @@ namespace HemisAudit.Controllers
             var summary = await _rule4001.GetFullSummaryByRunIdAsync(runId);
             if (summary == null || !await _systemDb.CanAccessClientResultsAsync(summary.ClientId, user, role))
                 return NotFound();
-            var bytes = BuildCsvBytes(summary);
+            var bytes = BuildXlsxBytes(summary);
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Rule40_1_StaffPresence_Run_{runId}.xlsx");
         }
 
@@ -277,6 +278,55 @@ namespace HemisAudit.Controllers
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static byte[] BuildXlsxBytes(Rule4001ValidationSummary summary)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Rule 40.1 Results");
+
+            int r = 1;
+            ws.Cell(r, 1).Value = "HEMIS RULE 40.1 – Staff VALPAC vs H16SFTE Staff Presence Check";
+            ws.Cell(r, 1).Style.Font.Bold = true;
+            ws.Cell(r, 1).Style.Font.FontSize = 13;
+            r++;
+            ws.Cell(r, 1).Value = "VALPAC Table";  ws.Cell(r, 2).Value = summary.ValpacTable;
+            ws.Cell(r, 3).Value = "SFTE Table";    ws.Cell(r, 4).Value = summary.SfteTable;   r++;
+            ws.Cell(r, 1).Value = "Database";      ws.Cell(r, 2).Value = summary.Database;
+            ws.Cell(r, 3).Value = "Timestamp";     ws.Cell(r, 4).Value = summary.Timestamp;   r++;
+            ws.Cell(r, 1).Value = "Total";         ws.Cell(r, 2).Value = summary.TotalCount;
+            ws.Cell(r, 3).Value = "Agree";         ws.Cell(r, 4).Value = summary.AgreeCount;  r++;
+            ws.Cell(r, 1).Value = "Missing in H16SFTE";  ws.Cell(r, 2).Value = summary.MissingInSfteCount;
+            ws.Cell(r, 3).Value = "Missing in VALPAC";   ws.Cell(r, 4).Value = summary.MissingInValpacCount;
+            ws.Cell(r, 5).Value = "Exception Rate"; ws.Cell(r, 6).Value = $"{summary.ExceptionRate:0.00}%"; r++;
+            ws.Cell(r, 1).Value = "Status";
+            ws.Cell(r, 2).Value = summary.Status;
+            ws.Cell(r, 2).Style.Font.Bold = true;
+            ws.Cell(r, 2).Style.Font.FontColor = summary.Status == "PASS" ? XLColor.Green : XLColor.Red;
+            r += 2;
+
+            ws.Cell(r, 1).Value = "Staff Number";
+            ws.Cell(r, 2).Value = "Result";
+            ws.Row(r).Style.Font.Bold = true;
+            ws.Row(r).Style.Fill.BackgroundColor = XLColor.FromHtml("#1565A6");
+            ws.Row(r).Style.Font.FontColor = XLColor.White;
+            r++;
+
+            foreach (var row in summary.ReviewRows.Concat(summary.AgreeSample))
+            {
+                ws.Cell(r, 1).Value = row.StaffNumber;
+                ws.Cell(r, 2).Value = row.OverallResult;
+                var rowColor = row.OverallResult == "AGREE"             ? XLColor.FromHtml("#F1F8E9")
+                             : row.OverallResult == "MISSING-H16SFTE"   ? XLColor.FromHtml("#FFEBEE")
+                             : XLColor.FromHtml("#FFF3E0");
+                ws.Row(r).Style.Fill.BackgroundColor = rowColor;
+                r++;
+            }
+
+            ws.Columns().AdjustToContents();
+            using var ms = new System.IO.MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
 
         private static byte[] BuildCsvBytes(Rule4001ValidationSummary summary)
         {

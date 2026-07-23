@@ -467,6 +467,12 @@ window.r4001Tab = function(tab) {
         var sw = g('r4001SaveBtn');   if (sw) sw.disabled = signed || !canEdit || !st.runId;
         var so = g('r4001SignoffBtn');if (so) { so.disabled = signed || !canSign; so.textContent = signed ? 'Signed Off' : 'Sign Off'; }
         show('r4001RemoveSignoffBtn', signed);
+        // Lock the whole configuration shell after signoff
+        window.ruleWorkspaceUi?.setReadonlyShell('app', signed);
+        window.ruleWorkspaceUi?.setFormSectionReadonly('.accordion-stack', signed);
+        window.ruleWorkspaceUi?.setButtonGroupReadonly(['.action-bar'], signed, {
+            except: ['r4001SignoffBtn', 'r4001RemoveSignoffBtn', 'r4001SaveBtn', 'r4001DlAllBtn']
+        });
     }
 
     /* ── Client change ── */
